@@ -1,20 +1,8 @@
 // renderer.js
 const { ipcRenderer } = require('electron');
 
-// Initialize random display name for UI components
-window.randomDisplayName = null;
-
-// Request random display name from main process
-ipcRenderer
-    .invoke('get-random-display-name')
-    .then(name => {
-        window.randomDisplayName = name;
-        console.log('Set random display name:', name);
-    })
-    .catch(err => {
-        console.warn('Could not get random display name:', err);
-        window.randomDisplayName = 'System Monitor';
-    });
+// Set default display name for UI components
+window.randomDisplayName = 'Focus Buddy';
 
 let mediaStream = null;
 let screenshotInterval = null;
@@ -746,21 +734,21 @@ function handleShortcut(shortcutKey) {
 }
 
 // Create reference to the main app element
-const cheatingDaddyApp = document.querySelector('cheating-daddy-app');
+const focusBuddyApp = document.querySelector('focus-buddy-app');
 
 // Consolidated cheddar object - all functions in one place
 const cheddar = {
     // Element access
-    element: () => cheatingDaddyApp,
-    e: () => cheatingDaddyApp,
+    element: () => focusBuddyApp,
+    e: () => focusBuddyApp,
 
     // App state functions - access properties directly from the app element
-    getCurrentView: () => cheatingDaddyApp.currentView,
-    getLayoutMode: () => cheatingDaddyApp.layoutMode,
+    getCurrentView: () => focusBuddyApp.currentView,
+    getLayoutMode: () => focusBuddyApp.layoutMode,
 
     // Status and response functions
-    setStatus: text => cheatingDaddyApp.setStatus(text),
-    setResponse: response => cheatingDaddyApp.setResponse(response),
+    setStatus: text => focusBuddyApp.setStatus(text),
+    setResponse: response => focusBuddyApp.setResponse(response),
 
     // Core functionality
     initializeGemini,
@@ -774,11 +762,7 @@ const cheddar = {
     getConversationSession,
     initConversationStorage,
 
-    // Content protection function
-    getContentProtection: () => {
-        const contentProtection = localStorage.getItem('contentProtection');
-        return contentProtection !== null ? contentProtection === 'true' : true;
-    },
+
 
     // Platform detection
     isLinux: isLinux,

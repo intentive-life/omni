@@ -15,18 +15,61 @@ export class FocusSessionView extends LitElement {
             gap: 20px;
         }
 
+        .scrollable-content {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        .scrollable-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .scrollable-content::-webkit-scrollbar-track {
+            background: var(--input-background);
+            border-radius: 4px;
+        }
+
+        .scrollable-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        .scrollable-content::-webkit-scrollbar-thumb:hover {
+            background: var(--description-color);
+        }
+
         .header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 20px 0;
             border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            background: var(--background-color);
+            z-index: 10;
         }
 
         .header h2 {
             margin: 0;
             font-size: 24px;
             font-weight: 600;
+        }
+
+        .header-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .shortcut-hint {
+            font-size: 12px;
+            color: var(--description-color);
+            background: var(--input-background);
+            padding: 4px 8px;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--border-color);
         }
 
         .session-info {
@@ -216,14 +259,30 @@ export class FocusSessionView extends LitElement {
             font-size: 14px;
         }
 
+        .screen-number {
+            font-size: 12px;
+            color: var(--description-color);
+            background: var(--border-color);
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 8px;
+        }
+
+        .screen-hint {
+            font-size: 12px;
+            color: var(--description-color);
+            margin-bottom: 10px;
+            font-style: italic;
+        }
+
         .activity-log {
             background: var(--input-background);
             border: 1px solid var(--border-color);
             border-radius: var(--border-radius);
-            padding: 15px;
+            padding: 20px;
             overflow-y: auto;
-            max-height: 200px;
-            margin-top: 20px;
+            max-height: 400px;
+            margin-bottom: 30px;
         }
 
         .activity-item {
@@ -266,6 +325,38 @@ export class FocusSessionView extends LitElement {
 
         .activity-type-success {
             color: #28a745;
+        }
+
+        .gemini-analysis {
+            margin-top: 8px;
+            padding: 8px;
+            background: var(--input-background);
+            border-radius: var(--border-radius);
+            border-left: 3px solid #3b82f6;
+        }
+
+        .analysis-details {
+            font-size: 12px;
+            color: var(--description-color);
+        }
+
+        .analysis-item {
+            margin-bottom: 4px;
+        }
+
+        .analysis-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .analysis-item strong {
+            color: var(--text-color);
+        }
+
+        .screen-description {
+            margin-left: 10px;
+            margin-top: 4px;
+            font-size: 11px;
+            color: var(--description-color);
         }
 
         .status-indicator {
@@ -426,7 +517,7 @@ export class FocusSessionView extends LitElement {
         }
     }
 
-    addActivityLog(message, type = 'info') {
+    addActivityLog(message, type = 'info', additionalData = null) {
         const now = new Date();
         const timestamp = now.toLocaleTimeString('en-US', { 
             hour12: false, 
@@ -434,7 +525,7 @@ export class FocusSessionView extends LitElement {
             minute: '2-digit', 
             second: '2-digit' 
         });
-        this.activityLog = [...this.activityLog, { timestamp, message, type }];
+        this.activityLog = [...this.activityLog, { timestamp, message, type, additionalData }];
         // Keep only last 50 entries
         if (this.activityLog.length > 50) {
             this.activityLog = this.activityLog.slice(-50);
@@ -463,7 +554,7 @@ export class FocusSessionView extends LitElement {
             
             this.activityUpdateHandler = (event, data) => {
                 if (data.sessionId === this.sessionId) {
-                    this.addActivityLog(data.message, data.type);
+                    this.addActivityLog(data.message, data.type, data.additionalData);
                 }
             };
 
@@ -512,6 +603,20 @@ export class FocusSessionView extends LitElement {
         // Show a reminder alert - for now just log to console
         console.log(`⏰ Reminder: Stay focused on "${task}"`);
         // TODO: Show a proper notification popup
+    }
+
+    showScreenNumber(screenNumber) {
+        // Send IPC message to main process to show screen number popup
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('show-screen-number', screenNumber);
+        }
+    }
+
+    hideScreenNumber() {
+        // Remove any existing popups
+        const popups = document.querySelectorAll('.screen-number-popup');
+        popups.forEach(popup => popup.remove());
     }
 
     renderSessionInfo() {
@@ -601,14 +706,19 @@ export class FocusSessionView extends LitElement {
         return html`
             <div class="screen-selection">
                 <div class="settings-title">Screen Selection</div>
+                <div class="screen-hint">Hover over screens to see their numbers</div>
                 ${this.availableScreens.length === 0 ? html`
                     <div class="empty-state">
                         <p>Loading available screens...</p>
                     </div>
-                ` : this.availableScreens.map(screen => html`
-                    <div class="screen-item ${this.selectedScreens.includes(screen.id) ? 'selected' : ''}" @click=${() => this.handleScreenToggle(screen.id)}>
+                ` : this.availableScreens.map((screen, index) => html`
+                    <div class="screen-item ${this.selectedScreens.includes(screen.id) ? 'selected' : ''}" 
+                         @click=${() => this.handleScreenToggle(screen.id)}
+                         @mouseenter=${() => this.showScreenNumber(index + 1)}
+                         @mouseleave=${() => this.hideScreenNumber()}>
                         <input type="checkbox" .checked=${this.selectedScreens.includes(screen.id)} @change=${() => this.handleScreenToggle(screen.id)}>
                         <div class="screen-name">${screen.name}</div>
+                        <div class="screen-number">${index + 1}</div>
                     </div>
                 `)}
             </div>
@@ -628,6 +738,7 @@ export class FocusSessionView extends LitElement {
                         <div class="activity-time">${activity.timestamp}</div>
                         <div class="activity-message activity-type-${activity.type}">
                             ${activity.message}
+                            ${activity.additionalData ? this.renderAdditionalData(activity.additionalData) : ''}
                         </div>
                     </div>
                 `)}
@@ -635,22 +746,62 @@ export class FocusSessionView extends LitElement {
         `;
     }
 
+    renderAdditionalData(data) {
+        if (data.geminiResponse) {
+            return html`
+                <div class="gemini-analysis">
+                    <div class="analysis-details">
+                        <div class="analysis-item">
+                            <strong>Confidence:</strong> ${(data.geminiResponse.confidence * 100).toFixed(1)}%
+                        </div>
+                        ${data.geminiResponse.detectedApps && data.geminiResponse.detectedApps.length > 0 ? html`
+                            <div class="analysis-item">
+                                <strong>Detected Apps:</strong> ${data.geminiResponse.detectedApps.join(', ')}
+                            </div>
+                        ` : ''}
+                        ${data.geminiResponse.screenDescriptions ? html`
+                            <div class="analysis-item">
+                                <strong>Screen Details:</strong>
+                                ${Object.entries(data.geminiResponse.screenDescriptions).map(([screen, description]) => html`
+                                    <div class="screen-description">
+                                        <strong>${screen}:</strong> ${description}
+                                    </div>
+                                `)}
+                            </div>
+                        ` : ''}
+                        ${data.geminiResponse.analysis ? html`
+                            <div class="analysis-item">
+                                <strong>Analysis:</strong> ${data.geminiResponse.analysis}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        return '';
+    }
+
     render() {
         return html`
             <div class="focus-container">
                 <div class="header">
                     <h2>Focus Session</h2>
-                    ${this.sessionActive ? html`
-                        <span class="status-indicator status-active"></span>
-                        <span>Active</span>
-                    ` : ''}
+                    <div class="header-info">
+                        <span class="shortcut-hint">Press Cmd + \\ to show/hide UI</span>
+                        ${this.sessionActive ? html`
+                            <span class="status-indicator status-active"></span>
+                            <span>Active</span>
+                        ` : ''}
+                    </div>
                 </div>
 
-                ${this.renderSessionInfo()}
-                ${this.renderSessionControls()}
-                ${this.renderSettings()}
-                ${this.renderScreenSelection()}
-                ${this.renderActivityLog()}
+                <div class="scrollable-content">
+                    ${this.renderActivityLog()}
+                    ${this.renderSessionInfo()}
+                    ${this.renderSessionControls()}
+                    ${this.renderSettings()}
+                    ${this.renderScreenSelection()}
+                </div>
             </div>
         `;
     }

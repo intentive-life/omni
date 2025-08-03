@@ -2,12 +2,31 @@ const { BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('os');
-const { applyStealthMeasures, startTitleRandomization } = require('./stealthFeatures');
 
 let mouseEventsIgnored = false;
 let windowResizing = false;
 let resizeAnimation = null;
 const RESIZE_ANIMATION_DURATION = 500; // milliseconds
+
+function applyStealthSettings(mainWindow, stealthMode) {
+    if (stealthMode) {
+        // Stealth mode - hide from screenshots and taskbar
+        mainWindow.setContentProtection(true);
+        mainWindow.setSkipTaskbar(true);
+        mainWindow.setHiddenInMissionControl(true);
+        mainWindow.setAlwaysOnTop(true);
+        // Note: Frame, transparent, and shadow are set during window creation
+        // and cannot be changed after window creation in Electron
+    } else {
+        // Visible mode - normal window behavior
+        mainWindow.setContentProtection(false);
+        mainWindow.setSkipTaskbar(false);
+        mainWindow.setHiddenInMissionControl(false);
+        mainWindow.setAlwaysOnTop(false);
+        // Note: Frame, transparent, and shadow are set during window creation
+        // and cannot be changed after window creation in Electron
+    }
+}
 
 function ensureDataDirectories() {
     const homeDir = os.homedir();
@@ -25,7 +44,9 @@ function ensureDataDirectories() {
     return { imageDir, audioDir };
 }
 
-function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
+function createWindow(sendToRenderer, geminiSessionRef) {
+    // Get stealth preference (default to stealth mode)
+    const stealthMode = true; // Default to stealth mode, will be updated when config loads
     // Get layout preference (default to 'normal')
     let windowWidth = 1100;
     let windowHeight = 800;
@@ -33,12 +54,12 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
     const mainWindow = new BrowserWindow({
         width: windowWidth,
         height: windowHeight,
-        frame: false,
-        transparent: true,
-        hasShadow: false,
-        alwaysOnTop: true,
-        skipTaskbar: true,
-        hiddenInMissionControl: true,
+        frame: stealthMode ? false : true,
+        transparent: stealthMode,
+        hasShadow: !stealthMode,
+        alwaysOnTop: stealthMode,
+        skipTaskbar: stealthMode,
+        hiddenInMissionControl: stealthMode,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false, // TODO: change to true
@@ -47,7 +68,7 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
             webSecurity: true,
             allowRunningInsecureContent: false,
         },
-        backgroundColor: '#00000000',
+        backgroundColor: stealthMode ? '#00000000' : '#ffffff',
     });
 
     const { session, desktopCapturer } = require('electron');
@@ -60,9 +81,8 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
         { useSystemPicker: true }
     );
 
-    mainWindow.setResizable(false);
-    mainWindow.setContentProtection(true);
-    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    mainWindow.setResizable(!stealthMode);
+    mainWindow.setVisibleOnAllWorkspaces(stealthMode, { visibleOnFullScreen: true });
 
     // Center window at the top of the screen
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -71,26 +91,31 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
     const y = 0;
     mainWindow.setPosition(x, y);
 
-    if (process.platform === 'win32') {
-        mainWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-    }
+
 
     mainWindow.loadFile(path.join(__dirname, '../index.html'));
 
-    // Set window title to random name if provided
-    if (randomNames && randomNames.windowTitle) {
-        mainWindow.setTitle(randomNames.windowTitle);
-        console.log(`Set window title to: ${randomNames.windowTitle}`);
-    }
+    // Set window title to Focus Buddy
+    mainWindow.setTitle('Focus Buddy');
 
-    // Apply stealth measures
-    applyStealthMeasures(mainWindow);
-
-    // Start periodic title randomization for additional stealth
-    startTitleRandomization(mainWindow);
+    // Apply stealth settings based on user preference
+    applyStealthSettings(mainWindow, stealthMode);
 
     // After window is created, check for layout preference and resize if needed
     mainWindow.webContents.once('dom-ready', () => {
+        // Load stealth mode from config
+        setTimeout(async () => {
+            try {
+                const { getLocalConfig } = require('./config');
+                const config = getLocalConfig();
+                const configStealthMode = config.stealthMode !== 'visible';
+                if (configStealthMode !== stealthMode) {
+                    applyStealthSettings(mainWindow, configStealthMode);
+                }
+            } catch (error) {
+                console.error('Error loading stealth mode from config:', error);
+            }
+        }, 100);
         setTimeout(() => {
             const defaultKeybinds = getDefaultKeybinds();
             let keybinds = defaultKeybinds;
@@ -114,21 +139,11 @@ function createWindow(sendToRenderer, geminiSessionRef, randomNames = null) {
                         keybinds = { ...defaultKeybinds, ...savedSettings.keybinds };
                     }
 
-                    // Apply content protection setting via IPC handler
-                    try {
-                        const contentProtection = await mainWindow.webContents.executeJavaScript('cheddar.getContentProtection()');
-                        mainWindow.setContentProtection(contentProtection);
-                        console.log('Content protection loaded from settings:', contentProtection);
-                    } catch (error) {
-                        console.error('Error loading content protection:', error);
-                        mainWindow.setContentProtection(true);
-                    }
+
 
                     updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef);
                 })
                 .catch(() => {
-                    // Default to content protection enabled
-                    mainWindow.setContentProtection(true);
                     updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessionRef);
                 });
         }, 150);
@@ -153,7 +168,7 @@ function getDefaultKeybinds() {
         nextResponse: isMac ? 'Cmd+]' : 'Ctrl+]',
         scrollUp: isMac ? 'Cmd+Shift+Up' : 'Ctrl+Shift+Up',
         scrollDown: isMac ? 'Cmd+Shift+Down' : 'Ctrl+Shift+Down',
-        emergencyErase: isMac ? 'Cmd+Shift+E' : 'Ctrl+Shift+E',
+
     };
 }
 
@@ -316,32 +331,7 @@ function updateGlobalShortcuts(keybinds, mainWindow, sendToRenderer, geminiSessi
         }
     }
 
-    // Register emergency erase shortcut
-    if (keybinds.emergencyErase) {
-        try {
-            globalShortcut.register(keybinds.emergencyErase, () => {
-                console.log('Emergency Erase triggered!');
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.hide();
 
-                    if (geminiSessionRef.current) {
-                        geminiSessionRef.current.close();
-                        geminiSessionRef.current = null;
-                    }
-
-                    sendToRenderer('clear-sensitive-data');
-
-                    setTimeout(() => {
-                        const { app } = require('electron');
-                        app.quit();
-                    }, 300);
-                }
-            });
-            console.log(`Registered emergencyErase: ${keybinds.emergencyErase}`);
-        } catch (error) {
-            console.error(`Failed to register emergencyErase (${keybinds.emergencyErase}):`, error);
-        }
-    }
 }
 
 function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
@@ -377,6 +367,22 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
             return { success: true };
         } catch (error) {
             console.error('Error toggling window visibility:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('update-stealth-mode', async (event, stealthMode) => {
+        try {
+            if (mainWindow.isDestroyed()) {
+                return { success: false, error: 'Window has been destroyed' };
+            }
+
+            // Convert string to boolean if needed
+            const isStealthMode = typeof stealthMode === 'string' ? stealthMode === 'stealth' : stealthMode;
+            applyStealthSettings(mainWindow, isStealthMode);
+            return { success: true };
+        } catch (error) {
+            console.error('Error updating stealth mode:', error);
             return { success: false, error: error.message };
         }
     });

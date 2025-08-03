@@ -408,6 +408,7 @@ export class CustomizeView extends LitElement {
         googleSearchEnabled: { type: Boolean },
         backgroundTransparency: { type: Number },
         fontSize: { type: Number },
+        stealthMode: { type: String },
         onProfileChange: { type: Function },
         onLanguageChange: { type: Function },
         onScreenshotIntervalChange: { type: Function },
@@ -444,17 +445,23 @@ export class CustomizeView extends LitElement {
         // Font size default (in pixels)
         this.fontSize = 20;
 
+        // Stealth mode default
+        this.stealthMode = 'stealth';
+
         this.loadKeybinds();
         this.loadGoogleSearchSettings();
         this.loadAdvancedModeSettings();
         this.loadBackgroundTransparency();
         this.loadFontSize();
+        this.loadStealthMode();
     }
 
     connectedCallback() {
         super.connectedCallback();
         // Load layout mode for display purposes
         this.loadLayoutMode();
+        // Load stealth mode
+        this.loadStealthMode();
         // Resize window for this view
         resizeLayout();
     }
@@ -844,6 +851,20 @@ export class CustomizeView extends LitElement {
         this.updateFontSize();
     }
 
+    async loadStealthMode() {
+        try {
+            if (window.require) {
+                const { ipcRenderer } = window.require('electron');
+                const config = await ipcRenderer.invoke('get-config');
+                this.stealthMode = config.stealthMode || 'stealth';
+                this.requestUpdate();
+            }
+        } catch (error) {
+            console.error('Error loading stealth mode:', error);
+            this.stealthMode = 'stealth';
+        }
+    }
+
     handleFontSizeChange(e) {
         this.fontSize = parseInt(e.target.value, 10);
         localStorage.setItem('fontSize', this.fontSize.toString());
@@ -854,6 +875,29 @@ export class CustomizeView extends LitElement {
     updateFontSize() {
         const root = document.documentElement;
         root.style.setProperty('--response-font-size', `${this.fontSize}px`);
+    }
+
+    async updateStealthMode(stealthMode) {
+        try {
+            if (window.require) {
+                const { ipcRenderer } = window.require('electron');
+                const mode = stealthMode ? 'stealth' : 'visible';
+                await ipcRenderer.invoke('update-stealth-mode', stealthMode);
+                await ipcRenderer.invoke('set-stealth-mode', mode);
+                this.stealthMode = mode;
+                this.requestUpdate();
+                this.showNotification('Stealth mode updated', 'success');
+            }
+        } catch (error) {
+            console.error('Error updating stealth mode:', error);
+            this.showNotification('Failed to update stealth mode', 'error');
+        }
+    }
+
+    showNotification(message, type = 'info') {
+        // Simple notification - you can enhance this with a proper notification system
+        console.log(`${type.toUpperCase()}: ${message}`);
+        // You could also dispatch a custom event or use a notification library
     }
 
     render() {
@@ -929,30 +973,30 @@ export class CustomizeView extends LitElement {
                     </div>
                 </div>
 
-                <!-- Stealth Profile Section -->
+
+
+
+                <!-- Stealth Mode Section -->
                 <div class="settings-section">
                     <div class="section-title">
-                        <span>Stealth Profile</span>
+                        <span>🔒 Stealth Mode</span>
                     </div>
                     <div class="form-grid">
                         <div class="form-group">
-                            <label class="form-label">Profile</label>
-                            <select class="form-control" .value=${localStorage.getItem('stealthProfile') || 'balanced'} @change=${e => {
-                                localStorage.setItem('stealthProfile', e.target.value);
-                                // We need to notify the main process to restart for some settings to apply
-                                alert('Restart the application for stealth changes to take full effect.');
+                            <label class="form-label">Window Visibility</label>
+                            <select class="form-control" .value=${this.stealthMode || 'stealth'} @change=${e => {
+                                const mode = e.target.value;
+                                this.updateStealthMode(mode === 'stealth');
                             }}>
-                                <option value="visible">Visible</option>
-                                <option value="balanced">Balanced</option>
-                                <option value="ultra">Ultra-Stealth</option>
+                                <option value="stealth">Stealth Mode (Hidden from screenshots)</option>
+                                <option value="visible">Visible Mode (Normal window)</option>
                             </select>
                             <div class="form-description">
-                                Adjusts visibility and detection resistance. A restart is required for changes to apply.
+                                Stealth mode hides the app from screenshots and screen recordings. Visible mode shows it normally.
                             </div>
                         </div>
                     </div>
                 </div>
-
 
                 <!-- Language & Audio Section -->
                 <div class="settings-section">

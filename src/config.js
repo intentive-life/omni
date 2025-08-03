@@ -5,8 +5,8 @@ const os = require('os');
 // Default configuration
 const DEFAULT_CONFIG = {
     onboarded: false,
-    stealthLevel: "balanced",
     layout: "normal",
+    stealthMode: "stealth", // Default to stealth mode
     // Focus Buddy specific configurations
     userProfile: {
         background: "",
@@ -34,14 +34,14 @@ function getConfigDir() {
     let configDir;
     
     if (platform === 'win32') {
-        // Windows: %APPDATA%\cheating-daddy-config
-        configDir = path.join(os.homedir(), 'AppData', 'Roaming', 'cheating-daddy-config');
+        // Windows: %APPDATA%\focus-buddy-config
+        configDir = path.join(os.homedir(), 'AppData', 'Roaming', 'focus-buddy-config');
     } else if (platform === 'darwin') {
-        // macOS: ~/Library/Application Support/cheating-daddy-config
-        configDir = path.join(os.homedir(), 'Library', 'Application Support', 'cheating-daddy-config');
+        // macOS: ~/Library/Application Support/focus-buddy-config
+        configDir = path.join(os.homedir(), 'Library', 'Application Support', 'focus-buddy-config');
     } else {
-        // Linux and others: ~/.config/cheating-daddy-config
-        configDir = path.join(os.homedir(), '.config', 'cheating-daddy-config');
+        // Linux and others: ~/.config/focus-buddy-config
+        configDir = path.join(os.homedir(), '.config', 'focus-buddy-config');
     }
     
     return configDir;

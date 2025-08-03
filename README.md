@@ -1,23 +1,23 @@
 <img src="/src/assets/logo.png" alt="uwu" width="200"/>
 
-# Cheating Daddy
+# Focus Buddy
 
 > [!NOTE]  
 > Use latest MacOS and Windows version, older versions have limited support
 
 > [!NOTE]  
-> During testing it wont answer if you ask something, you need to simulate interviewer asking question, which it will answer
+> Focus Buddy helps you stay productive by monitoring your screen activity and providing AI-powered insights
 
-A real-time AI assistant that provides contextual help during video calls, interviews, presentations, and meetings using screen capture and audio analysis.
+An AI-powered focus monitoring and productivity assistant that helps you stay on task and improve your productivity through intelligent screen analysis and task management.
 
 ## Features
 
-- **Live AI Assistance**: Real-time help powered by Google Gemini 2.0 Flash Live
-- **Screen & Audio Capture**: Analyzes what you see and hear for contextual responses
-- **Multiple Profiles**: Interview, Sales Call, Business Meeting, Presentation, Negotiation
-- **Transparent Overlay**: Always-on-top window that can be positioned anywhere
-- **Click-through Mode**: Make window transparent to clicks when needed
-- **Cross-platform**: Works on macOS, Windows, and Linux (kinda, dont use, just for testing rn)
+- **AI-Powered Focus Monitoring**: Real-time screen analysis using Google Gemini 2.0 Flash Live
+- **Task Management**: Built-in todo list with task tracking and completion
+- **Focus Sessions**: Monitor your productivity during focused work sessions
+- **Smart Notifications**: Get alerts when you're distracted with helpful suggestions
+- **Productivity Analytics**: Track your focus patterns and improvement over time
+- **Cross-platform**: Works on macOS, Windows, and Linux
 
 ## Setup
 
@@ -28,10 +28,10 @@ A real-time AI assistant that provides contextual help during video calls, inter
 ## Usage
 
 1. Enter your Gemini API key in the main window
-2. Choose your profile and language in settings
-3. Click "Start Session" to begin
-4. Position the window using keyboard shortcuts
-5. The AI will provide real-time assistance based on your screen and what interview asks
+2. Add tasks to your todo list to track your work
+3. Start a focus session to monitor your productivity
+4. The AI will analyze your screen activity and provide insights
+5. Get notifications when you're distracted with helpful suggestions
 
 ## Keyboard Shortcuts
 
@@ -40,11 +40,11 @@ A real-time AI assistant that provides contextual help during video calls, inter
 - **Close/Back**: `Ctrl/Cmd + \` - Close window or go back
 - **Send Message**: `Enter` - Send text to AI
 
-## Audio Capture
+## Focus Monitoring
 
-- **macOS**: [SystemAudioDump](https://github.com/Mohammed-Yasin-Mulla/Sound) for system audio
-- **Windows**: Loopback audio capture
-- **Linux**: Microphone input
+- **Screen Analysis**: AI-powered analysis of your screen content
+- **Activity Detection**: Identifies when you're focused vs. distracted
+- **Productivity Insights**: Provides suggestions to improve your focus
 
 ## Requirements
 

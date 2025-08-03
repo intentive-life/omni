@@ -1,0 +1,250 @@
+# Cursor Rules for Focus Buddy Development
+
+## 🚨 CRITICAL: Environment Context Awareness
+
+### Main Process vs Renderer Process
+- **MAIN PROCESS** (Node.js): `src/index.js`, `src/utils/window.js`, `src/config.js`
+  - ❌ NEVER use `localStorage` - it doesn't exist in Node.js
+  - ❌ NEVER use `window` object - it doesn't exist in Node.js
+  - ✅ Use file system, IPC, or config system for data persistence
+  - ✅ Use `require()` for imports, not ES6 imports
+
+- **RENDERER PROCESS** (Browser): `src/components/`, `src/utils/renderer.js`
+  - ✅ Can use `localStorage`, `window`, DOM APIs
+  - ✅ Can use ES6 imports
+  - ✅ Can use `window.require('electron')` to access main process
+
+### IPC Communication
+- **Main → Renderer**: Use `mainWindow.webContents.send()`
+- **Renderer → Main**: Use `ipcRenderer.invoke()` or `ipcRenderer.send()`
+- **Always handle errors** in IPC calls with try/catch
+
+## 🔧 Code Quality Rules
+
+### File Operations
+- **Always use async/await** for file operations
+- **Handle errors gracefully** with try/catch blocks
+- **Use proper error messages** for debugging
+
+### Configuration Management
+- **Use config system** (`src/config.js`) for persistent settings
+- **Don't mix localStorage and config** - choose one approach
+- **Validate config values** before using them
+
+### Component Development
+- **Always call `super.connectedCallback()`** in LitElement components
+- **Use `this.requestUpdate()`** when changing properties that affect rendering
+- **Handle async operations** properly in components
+
+## 🎯 Specific Patterns
+
+### Stealth Mode Implementation
+```javascript
+// ✅ CORRECT: Main process
+const { getLocalConfig } = require('./config');
+const config = getLocalConfig();
+const stealthMode = config.stealthMode !== 'visible';
+
+// ❌ WRONG: Main process
+const stealthMode = localStorage.getItem('stealthMode') !== 'visible';
+```
+
+### Window Creation
+```javascript
+// ✅ CORRECT: Apply settings after window creation
+mainWindow.webContents.once('dom-ready', () => {
+    // Load config and apply settings here
+});
+
+// ❌ WRONG: Try to access browser APIs in main process
+const stealthMode = localStorage.getItem('stealthMode');
+```
+
+### Component Property Updates
+```javascript
+// ✅ CORRECT: Update property and refresh UI
+this.stealthMode = newValue;
+this.requestUpdate();
+
+// ❌ WRONG: Update property without refreshing
+this.stealthMode = newValue;
+```
+
+## 🐛 Debugging Rules
+
+### Error Handling
+- **Always log errors** with `console.error()`
+- **Include context** in error messages
+- **Use try/catch** around async operations
+- **Handle IPC errors** specifically
+
+### Testing Changes
+- **Test both stealth and visible modes** when making UI changes
+- **Verify config persistence** across app restarts
+- **Check IPC communication** between main and renderer
+- **Test error scenarios** (network failures, invalid config, etc.)
+
+## 📁 File Organization
+
+### Import/Export Patterns
+```javascript
+// ✅ CORRECT: Main process
+const { functionName } = require('./path/to/file');
+
+// ✅ CORRECT: Renderer process
+import { functionName } from './path/to/file.js';
+
+// ❌ WRONG: Mixing patterns
+import { functionName } from './path/to/file'; // Missing .js in renderer
+```
+
+### Component Structure
+```javascript
+// ✅ CORRECT: LitElement component
+export class ComponentName extends LitElement {
+    static properties = {
+        propertyName: { type: String }
+    };
+    
+    constructor() {
+        super();
+        this.propertyName = 'default';
+    }
+    
+    connectedCallback() {
+        super.connectedCallback();
+        this.loadData();
+    }
+}
+```
+
+## 🔒 Security & Privacy
+
+### Stealth Features
+- **Default to stealth mode** for privacy
+- **Make stealth configurable** but secure by default
+- **Test stealth effectiveness** in screen recordings
+- **Document stealth limitations** clearly
+
+### API Keys & Sensitive Data
+- **Never hardcode API keys** in source code
+- **Use secure storage** for sensitive data
+- **Validate API keys** before using them
+- **Handle API failures** gracefully
+
+## 🚀 Performance Rules
+
+### Async Operations
+- **Use Promise.all()** for parallel operations
+- **Avoid blocking operations** in renderer process
+- **Use debouncing** for frequent updates
+- **Clean up resources** (intervals, listeners, etc.)
+
+### Memory Management
+- **Remove event listeners** when components are destroyed
+- **Clear intervals** and timeouts
+- **Dispose of large objects** when no longer needed
+
+## 📝 Documentation Rules
+
+### Code Comments
+- **Explain complex logic** with comments
+- **Document API changes** clearly
+- **Include examples** for complex functions
+- **Update comments** when code changes
+
+### Commit Messages
+- **Use descriptive commit messages**
+- **Include context** for changes
+- **Reference issues** when applicable
+- **Test before committing**
+
+## 🎨 UI/UX Rules
+
+### User Experience
+- **Provide clear feedback** for user actions
+- **Handle loading states** appropriately
+- **Show error messages** in user-friendly way
+- **Maintain consistency** in UI patterns
+
+### Accessibility
+- **Use semantic HTML** elements
+- **Provide alt text** for images
+- **Ensure keyboard navigation** works
+- **Test with screen readers**
+
+## 🔄 State Management
+
+### Data Flow
+- **Single source of truth** for application state
+- **Use config system** for persistent state
+- **Update UI immediately** when state changes
+- **Validate state** before using it
+
+### Component Communication
+- **Use events** for component communication
+- **Avoid prop drilling** when possible
+- **Keep components focused** on single responsibility
+- **Use composition** over inheritance
+
+## 🧪 Testing Rules
+
+### Before Making Changes
+- **Understand the current behavior** first
+- **Read related files** to understand dependencies
+- **Check for existing patterns** in the codebase
+- **Consider edge cases** and error scenarios
+
+### After Making Changes
+- **Test the specific change** thoroughly
+- **Test related functionality** that might be affected
+- **Verify error handling** works correctly
+- **Check performance** impact if significant
+
+## 🚫 Common Anti-Patterns to Avoid
+
+### ❌ Don't Do These
+- Use `localStorage` in main process
+- Access `window` in main process
+- Forget to call `super.connectedCallback()`
+- Update properties without `requestUpdate()`
+- Mix require() and import statements
+- Hardcode configuration values
+- Ignore error handling
+- Make stealth features non-configurable
+- Use synchronous file operations
+- Forget to clean up resources
+
+### ✅ Always Do These
+- Handle errors gracefully
+- Test both stealth and visible modes
+- Use proper async/await patterns
+- Validate input data
+- Log errors with context
+- Update UI when state changes
+- Use config system for persistence
+- Test error scenarios
+- Document complex logic
+- Clean up resources properly
+
+## 🎯 Focus Buddy Specific Rules
+
+### Stealth Mode
+- **Default to stealth** for privacy
+- **Make it configurable** in settings
+- **Test with screen recording** software
+- **Document limitations** clearly
+
+### Focus Monitoring
+- **Use AI-generated messages** when possible
+- **Fallback to templates** when AI fails
+- **Handle API rate limits** gracefully
+- **Provide meaningful feedback** to users
+
+### Task Management
+- **Persist tasks** across sessions
+- **Validate task data** before saving
+- **Handle task conflicts** gracefully
+- **Provide clear task status** feedback
+
+Remember: When in doubt, check the environment context first and handle errors gracefully! 

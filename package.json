@@ -1,8 +1,8 @@
 {
-    "name": "cheating-daddy",
-    "productName": "cheating-daddy",
+    "name": "focus-buddy",
+    "productName": "Focus Buddy",
     "version": "0.4.0",
-    "description": "cheating daddy",
+    "description": "AI-powered focus monitoring and productivity assistant",
     "main": "src/index.js",
     "scripts": {
         "start": "electron-forge start",
@@ -13,11 +13,12 @@
         "test": "vitest run"
     },
     "keywords": [
-        "cheating daddy",
-        "cheating daddy ai",
-        "cheating daddy ai assistant",
-        "cheating daddy ai assistant for interviews",
-        "cheating daddy ai assistant for interviews"
+        "focus buddy",
+        "productivity",
+        "focus monitoring",
+        "ai assistant",
+        "pomodoro",
+        "task management"
     ],
     "author": {
         "name": "sohzm",

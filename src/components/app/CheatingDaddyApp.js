@@ -6,7 +6,7 @@ import { TodoView } from '../views/TodoView.js';
 import { FocusSessionView } from '../views/FocusSessionView.js';
 import { ApiKeyView } from '../views/ApiKeyView.js';
 
-export class CheatingDaddyApp extends LitElement {
+export class FocusBuddyApp extends LitElement {
     static styles = css`
         * {
             box-sizing: border-box;
@@ -316,7 +316,7 @@ export class CheatingDaddyApp extends LitElement {
     async handleAPIKeyHelp() {
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('open-external', 'https://cheatingdaddy.com/help/api-key');
+            await ipcRenderer.invoke('open-external', 'https://focusbuddy.app/help/api-key');
         }
     }
 
@@ -504,4 +504,4 @@ export class CheatingDaddyApp extends LitElement {
     }
 }
 
-customElements.define('cheating-daddy-app', CheatingDaddyApp);
+customElements.define('focus-buddy-app', FocusBuddyApp);

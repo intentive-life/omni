@@ -170,7 +170,7 @@ export class AppHeader extends LitElement {
             'api-key': 'API Key Setup',
             assistant: 'Focus Buddy',
         };
-        return titles[this.currentView] || 'Cheating Daddy';
+        return titles[this.currentView] || 'Focus Buddy';
     }
 
     getElapsedTime() {

@@ -2,29 +2,21 @@ if (require('electron-squirrel-startup')) {
     process.exit(0);
 }
 
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, screen } = require('electron');
 const { createWindow, updateGlobalShortcuts } = require('./utils/window');
 const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = require('./utils/gemini');
-const { initializeRandomProcessNames } = require('./utils/processRandomizer');
-const { applyAntiAnalysisMeasures } = require('./utils/stealthFeatures');
 const { getLocalConfig, writeConfig } = require('./config');
 const { focusMonitor } = require('./utils/focusMonitor');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
 
-// Initialize random process names for stealth
-const randomNames = initializeRandomProcessNames();
-
 function createMainWindow() {
-    mainWindow = createWindow(sendToRenderer, geminiSessionRef, randomNames);
+    mainWindow = createWindow(sendToRenderer, geminiSessionRef);
     return mainWindow;
 }
 
 app.whenReady().then(async () => {
-    // Apply anti-analysis measures with random delay
-    await applyAntiAnalysisMeasures();
-
     createMainWindow();
     setupGeminiIpcHandlers(geminiSessionRef);
     setupGeneralIpcHandlers();
@@ -61,22 +53,7 @@ function setupGeneralIpcHandlers() {
         }
     });
 
-    ipcMain.handle('set-stealth-level', async (event, stealthLevel) => {
-        try {
-            const validLevels = ['visible', 'balanced', 'ultra'];
-            if (!validLevels.includes(stealthLevel)) {
-                throw new Error(`Invalid stealth level: ${stealthLevel}. Must be one of: ${validLevels.join(', ')}`);
-            }
-            
-            const config = getLocalConfig();
-            config.stealthLevel = stealthLevel;
-            writeConfig(config);
-            return { success: true, config };
-        } catch (error) {
-            console.error('Error setting stealth level:', error);
-            return { success: false, error: error.message };
-        }
-    });
+
 
     ipcMain.handle('set-layout', async (event, layout) => {
         try {
@@ -91,6 +68,23 @@ function setupGeneralIpcHandlers() {
             return { success: true, config };
         } catch (error) {
             console.error('Error setting layout:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('set-stealth-mode', async (event, stealthMode) => {
+        try {
+            const validModes = ['stealth', 'visible'];
+            if (!validModes.includes(stealthMode)) {
+                throw new Error(`Invalid stealth mode: ${stealthMode}. Must be one of: ${validModes.join(', ')}`);
+            }
+            
+            const config = getLocalConfig();
+            config.stealthMode = stealthMode;
+            writeConfig(config);
+            return { success: true, config };
+        } catch (error) {
+            console.error('Error setting stealth mode:', error);
             return { success: false, error: error.message };
         }
     });
@@ -208,6 +202,66 @@ function setupGeneralIpcHandlers() {
         }
     });
 
+    // Screen number popup handler
+    ipcMain.on('show-screen-number', (event, screenNumber) => {
+        try {
+            const displays = screen.getAllDisplays();
+            
+            if (displays[screenNumber - 1]) {
+                const display = displays[screenNumber - 1];
+                const { x, y, width, height } = display.bounds;
+                
+                // Create a popup window on the actual screen
+                const popup = new BrowserWindow({
+                    width: 200,
+                    height: 100,
+                    x: x + Math.floor(width / 2) - 100,
+                    y: y + Math.floor(height / 2) - 50,
+                    frame: false,
+                    alwaysOnTop: true,
+                    skipTaskbar: true,
+                    resizable: false,
+                    webPreferences: {
+                        nodeIntegration: false,
+                        contextIsolation: true
+                    }
+                });
+                
+                popup.loadURL(`data:text/html,
+                    <html>
+                        <body style="
+                            margin: 0;
+                            padding: 20px;
+                            background: rgba(0, 0, 0, 0.8);
+                            color: white;
+                            font-family: Arial, sans-serif;
+                            font-size: 24px;
+                            font-weight: bold;
+                            text-align: center;
+                            border-radius: 10px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            height: 100vh;
+                            user-select: none;
+                        ">
+                            Screen ${screenNumber}
+                        </body>
+                    </html>
+                `);
+                
+                // Close popup after 2 seconds
+                setTimeout(() => {
+                    if (!popup.isDestroyed()) {
+                        popup.close();
+                    }
+                }, 2000);
+            }
+        } catch (error) {
+            console.error('Error showing screen number popup:', error);
+        }
+    });
+
     // API Key validation
     ipcMain.handle('validate-api-key', async (event, apiKey) => {
         try {
@@ -221,7 +275,7 @@ function setupGeneralIpcHandlers() {
                     const options = {
                         hostname: 'generativelanguage.googleapis.com',
                         port: 443,
-                        path: '/v1beta/models/gemini-1.5-flash:generateContent?key=' + apiKey,
+                        path: '/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey,
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -298,28 +352,7 @@ function setupGeneralIpcHandlers() {
         }
     });
 
-    ipcMain.handle('update-content-protection', async (event, contentProtection) => {
-        try {
-            if (mainWindow) {
 
-                // Get content protection setting from localStorage via cheddar
-                const contentProtection = await mainWindow.webContents.executeJavaScript('cheddar.getContentProtection()');
-                mainWindow.setContentProtection(contentProtection);
-                console.log('Content protection updated:', contentProtection);
-            }
-            return { success: true };
-        } catch (error) {
-            console.error('Error updating content protection:', error);
-            return { success: false, error: error.message };
-        }
-    });
 
-    ipcMain.handle('get-random-display-name', async event => {
-        try {
-            return randomNames ? randomNames.displayName : 'System Monitor';
-        } catch (error) {
-            console.error('Error getting random display name:', error);
-            return 'System Monitor';
-        }
-    });
+
 }

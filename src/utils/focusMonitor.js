@@ -5,7 +5,8 @@ class FocusMonitor {
     constructor() {
         this.activeSessions = new Map(); // sessionId -> sessionData
         this.monitoringIntervals = new Map(); // sessionId -> interval
-        this.geminiSession = null;
+        this.geminiClient = null;
+        this.apiKey = null;
     }
 
     async initializeGemini(apiKey) {
@@ -17,9 +18,14 @@ class FocusMonitor {
         try {
             console.log('Initializing focus monitoring with API key...');
             
+            // Initialize Gemini client
+            this.geminiClient = new GoogleGenAI({
+                apiKey: apiKey,
+            });
+            
             // Store the API key for later use
             this.apiKey = apiKey;
-            console.log('Focus monitor initialized successfully');
+            console.log('Focus monitor initialized successfully with Gemini client');
             return true;
         } catch (error) {
             console.error('Error initializing focus monitoring:', error);
@@ -99,12 +105,19 @@ class FocusMonitor {
             // Handle activity result
             if (activityResult.isDistracted) {
                 session.distractionCount++;
-                this.sendActivityUpdate(sessionId, `Potential distraction detected: ${activityResult.reason}`, 'warning');
+                
+                // Use AI-generated message if available, otherwise fallback to template
+                const message = activityResult.aiMessage || this.getFallbackDistractionMessage();
+                
+                this.sendActivityUpdate(sessionId, `🚨 Distraction Alert: ${activityResult.reason} - ${message}`, 'warning');
                 
                 // Send distraction notification
                 this.sendDistractionNotification(sessionId, activityResult);
             } else {
-                this.sendActivityUpdate(sessionId, 'Activity appears focused', 'info');
+                // Use AI-generated message if available, otherwise fallback to template
+                const message = activityResult.aiMessage || this.getFallbackFocusedMessage();
+                
+                this.sendActivityUpdate(sessionId, `✅ Focused: ${activityResult.reason} - ${message}`, 'success');
             }
 
             // Check for reminder frequency
@@ -147,35 +160,148 @@ class FocusMonitor {
     }
 
     async analyzeActivity(screenshots, focusTask) {
-        if (!this.geminiSession || screenshots.length === 0) {
+        if (!this.geminiClient || screenshots.length === 0) {
+            console.log('No Gemini client or screenshots available for analysis');
             return { isDistracted: false, reason: 'No analysis possible' };
         }
 
         try {
+            console.log(`\n🔍 ANALYZING ACTIVITY - ${screenshots.length} screenshot(s)`);
+            console.log(`📋 Focus Task: "${focusTask}"`);
+            
             // Create analysis prompt
             const prompt = `
-            Analyze this screen capture and determine if the user is focused on their task: "${focusTask}"
+            Analyze these screen captures and determine if the user is focused on their task: "${focusTask}"
             
             Consider:
             - Is the content related to the task?
             - Are they on social media, games, or other distractions?
             - Is this productive work?
+            - What specific applications or websites are visible?
             
             Respond with JSON format:
             {
                 "isDistracted": true/false,
-                "reason": "brief explanation",
-                "confidence": 0.0-1.0
+                "reason": "brief explanation of what you see",
+                "confidence": 0.0-1.0,
+                "detectedApps": ["list of visible applications/websites"],
+                "analysis": "detailed analysis of the screen content",
+                "screenDescriptions": {
+                    "screen1": "description of what's on screen 1",
+                    "screen2": "description of what's on screen 2"
+                },
+                "aiMessage": "a witty, motivational, or sarcastic message (depending on if they're focused or distracted) to encourage better focus or acknowledge good work. Keep it brief, engaging, and use emojis appropriately."
             }
             `;
 
-            // For now, we'll use simple heuristic analysis since live sessions are more complex
-            // In a real implementation, you'd use the live session to send the prompt
-            console.log('Using heuristic analysis for now - Gemini live session analysis not yet implemented');
-            return this.simpleHeuristicAnalysis(screenshots, focusTask);
+            console.log('📤 Sending to Gemini API...');
+            console.log(`   - Prompt: ${prompt.substring(0, 100)}...`);
+            console.log(`   - Images: ${screenshots.map((s, index) => `Image ${index + 1}: ${s.name} (${s.id})`).join(', ')}`);
+            console.log(`   - Total images being sent: ${screenshots.length}`);
+
+            // Prepare image parts for Gemini
+            const imageParts = screenshots.map(screenshot => ({
+                inlineData: {
+                    mimeType: 'image/png',
+                    data: screenshot.thumbnail.split(',')[1] // Remove data:image/png;base64, prefix
+                }
+            }));
+
+            console.log('📤 Sending to Gemini API...');
+            console.log(`   - Model: gemini-2.5-flash`);
+            console.log(`   - Images: ${screenshots.map((s, index) => `Image ${index + 1}: ${s.name} (${s.id})`).join(', ')}`);
+            console.log(`   - Total images being sent: ${screenshots.length}`);
+
+            // Send to Gemini API with retry logic
+            let result;
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (attempts < maxAttempts) {
+                try {
+                    attempts++;
+                    console.log(`📤 Attempt ${attempts}/${maxAttempts} - Sending to Gemini API...`);
+                    
+                    result = await this.geminiClient.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: [prompt, ...imageParts]
+                    });
+                    
+                    break; // Success, exit retry loop
+                } catch (error) {
+                    console.log(`❌ Attempt ${attempts} failed:`, error.message);
+                    
+                    if (attempts >= maxAttempts) {
+                        throw error; // Re-throw if all attempts failed
+                    }
+                    
+                    // Wait before retrying (exponential backoff)
+                    const delay = Math.pow(2, attempts) * 1000;
+                    console.log(`⏳ Waiting ${delay}ms before retry...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+            
+            console.log('🔧 Debug: Result structure:', JSON.stringify(result, null, 2));
+            
+            // Handle different response structures
+            let text;
+            if (result.response && result.response.text) {
+                text = result.response.text();
+            } else if (result.text) {
+                text = result.text;
+            } else if (result.candidates && result.candidates[0] && result.candidates[0].content) {
+                text = result.candidates[0].content.parts[0].text;
+            } else {
+                console.error('🔧 Debug: Unexpected response structure:', result);
+                throw new Error('Unexpected response structure from Gemini API');
+            }
+
+            console.log('📥 Received Gemini Response:');
+            console.log(`   - Raw response: ${text.substring(0, 200)}...`);
+
+            // Parse JSON response
+            let analysisResult;
+            try {
+                // Extract JSON from response (in case there's extra text)
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    analysisResult = JSON.parse(jsonMatch[0]);
+                } else {
+                    throw new Error('No JSON found in response');
+                }
+            } catch (parseError) {
+                console.error('Failed to parse Gemini response as JSON:', parseError);
+                console.log('Falling back to heuristic analysis');
+                return this.simpleHeuristicAnalysis(screenshots, focusTask);
+            }
+
+            console.log('✅ Parsed Analysis Result:');
+            console.log(`   - Distracted: ${analysisResult.isDistracted}`);
+            console.log(`   - Reason: ${analysisResult.reason}`);
+            console.log(`   - Confidence: ${analysisResult.confidence || 'N/A'}`);
+            console.log(`   - Apps: ${(analysisResult.detectedApps || []).join(', ')}`);
+
+            // Store the full analysis in activity log
+            const analysisLog = {
+                timestamp: new Date().toISOString(),
+                screenshots: screenshots.length,
+                focusTask: focusTask,
+                geminiResponse: analysisResult,
+                rawResponse: text
+            };
+
+            this.sendActivityUpdate('system', `AI Analysis: ${analysisResult.reason}`, 'info', analysisLog);
+
+            return {
+                isDistracted: analysisResult.isDistracted || false,
+                reason: analysisResult.reason || 'Analysis completed',
+                confidence: analysisResult.confidence || 0.5,
+                aiMessage: analysisResult.aiMessage || null
+            };
 
         } catch (error) {
-            console.error('Error analyzing activity with Gemini:', error);
+            console.error('❌ Error analyzing activity with Gemini:', error);
             
             // Check if it's an API key error
             const isApiKeyError = error.message && (
@@ -187,16 +313,18 @@ class FocusMonitor {
             
             if (isApiKeyError) {
                 console.error('Invalid API key detected during analysis');
-                // Send notification to renderer about API key issue
                 this.sendActivityUpdate('system', 'API key validation failed. Please check your Gemini API key.', 'error');
             }
             
             // Fallback to simple heuristic
+            console.log('🔄 Falling back to heuristic analysis');
             return this.simpleHeuristicAnalysis(screenshots, focusTask);
         }
     }
 
     simpleHeuristicAnalysis(screenshots, focusTask) {
+        console.log('🔍 Using heuristic analysis (fallback)');
+        
         // Simple heuristic analysis - in reality, you'd use AI
         // For now, we'll just randomly detect "distractions" for testing
         const random = Math.random();
@@ -209,25 +337,35 @@ class FocusMonitor {
                 'Gaming activity detected',
                 'Entertainment content detected'
             ];
+            const reason = distractions[Math.floor(Math.random() * distractions.length)];
+            console.log(`   - Heuristic result: Distracted - ${reason}`);
             return {
                 isDistracted: true,
-                reason: distractions[Math.floor(Math.random() * distractions.length)]
+                reason: reason
             };
         }
         
+        console.log('   - Heuristic result: Focused');
         return { isDistracted: false, reason: 'Activity appears focused' };
     }
 
-    sendActivityUpdate(sessionId, message, type = 'info') {
+    sendActivityUpdate(sessionId, message, type = 'info', additionalData = null) {
         // Send activity update to renderer
         const windows = require('electron').BrowserWindow.getAllWindows();
         if (windows.length > 0) {
-            windows[0].webContents.send('focus-activity-update', {
+            const updateData = {
                 sessionId,
                 message,
                 type,
                 timestamp: new Date().toISOString()
-            });
+            };
+            
+            // Add additional data if provided
+            if (additionalData) {
+                updateData.additionalData = additionalData;
+            }
+            
+            windows[0].webContents.send('focus-activity-update', updateData);
         }
     }
 
@@ -269,6 +407,28 @@ class FocusMonitor {
             focusScore: session.activityCount > 0 ? 
                 ((session.activityCount - session.distractionCount) / session.activityCount) * 100 : 100
         };
+    }
+
+    getFallbackDistractionMessage() {
+        const sarcasticComments = [
+            "Oh look, another 'important' social media break! 🙄",
+            "Surely this YouTube video is totally work-related, right? 😏",
+            "Breaking news: Your task is still waiting while you scroll! 📱",
+            "Productivity level: Expert procrastinator! 🏆",
+            "Task: Still incomplete. Distractions: Mastered! 🎯"
+        ];
+        return sarcasticComments[Math.floor(Math.random() * sarcasticComments.length)];
+    }
+
+    getFallbackFocusedMessage() {
+        const focusedMessages = [
+            "Great job staying focused! 💪",
+            "Productivity mode: ACTIVATED! ⚡",
+            "Task progress: Moving forward! 🚀",
+            "Focus level: Maximum! 🎯",
+            "You're crushing it! Keep going! 🔥"
+        ];
+        return focusedMessages[Math.floor(Math.random() * focusedMessages.length)];
     }
 }
 
