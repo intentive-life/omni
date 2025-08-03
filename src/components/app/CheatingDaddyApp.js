@@ -1,12 +1,10 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 import { AppHeader } from './AppHeader.js';
 import { MainView } from '../views/MainView.js';
-import { CustomizeView } from '../views/CustomizeView.js';
-import { HelpView } from '../views/HelpView.js';
-import { HistoryView } from '../views/HistoryView.js';
-import { AssistantView } from '../views/AssistantView.js';
 import { OnboardingView } from '../views/OnboardingView.js';
-import { AdvancedView } from '../views/AdvancedView.js';
+import { TodoView } from '../views/TodoView.js';
+import { FocusSessionView } from '../views/FocusSessionView.js';
+import { ApiKeyView } from '../views/ApiKeyView.js';
 
 export class CheatingDaddyApp extends LitElement {
     static styles = css`
@@ -114,11 +112,22 @@ export class CheatingDaddyApp extends LitElement {
         _isClickThrough: { state: true },
         _awaitingNewResponse: { state: true },
         shouldAnimateResponse: { type: Boolean },
+        currentFocusTask: { type: Object },
     };
 
     constructor() {
         super();
-        this.currentView = localStorage.getItem('onboardingCompleted') ? 'main' : 'onboarding';
+        
+        // Check if API key exists and is valid
+        const apiKey = localStorage.getItem('apiKey');
+        const apiKeyValidated = localStorage.getItem('apiKeyValidated') === 'true';
+        
+        if (!apiKey || !apiKeyValidated) {
+            this.currentView = 'api-key';
+        } else {
+            this.currentView = localStorage.getItem('onboardingCompleted') ? 'todo' : 'onboarding';
+        }
+        
         this.statusText = '';
         this.startTime = null;
         this.isRecording = false;
@@ -136,6 +145,7 @@ export class CheatingDaddyApp extends LitElement {
         this._awaitingNewResponse = false;
         this._currentResponseIsComplete = true;
         this.shouldAnimateResponse = false;
+        this.currentFocusTask = null;
 
         // Apply layout mode to document root
         this.updateLayoutMode();
@@ -213,23 +223,41 @@ export class CheatingDaddyApp extends LitElement {
     }
 
     // Header event handlers
-    handleCustomizeClick() {
-        this.currentView = 'customize';
+
+
+    handleTodoClick() {
+        this.currentView = 'todo';
         this.requestUpdate();
     }
 
-    handleHelpClick() {
-        this.currentView = 'help';
+    handleStartFocusSession(task) {
+        console.log('Starting focus session for task:', task);
+        this.currentFocusTask = task;
+        this.currentView = 'focus-session';
         this.requestUpdate();
     }
 
-    handleHistoryClick() {
-        this.currentView = 'history';
+    handleBackToTodo() {
+        this.currentView = 'todo';
+        this.currentFocusTask = null;
         this.requestUpdate();
     }
 
-    handleAdvancedClick() {
-        this.currentView = 'advanced';
+    handleGetStarted() {
+        this.currentView = 'todo';
+        this.requestUpdate();
+    }
+
+    handleApiKeyValidated() {
+        localStorage.setItem('apiKeyValidated', 'true');
+        this.currentView = 'todo';
+        this.requestUpdate();
+    }
+
+    handleSettingsClick() {
+        // Clear API key validation and go back to API key setup
+        localStorage.removeItem('apiKeyValidated');
+        this.currentView = 'api-key';
         this.requestUpdate();
     }
 
@@ -392,10 +420,14 @@ export class CheatingDaddyApp extends LitElement {
     }
 
     renderCurrentView() {
-        // Only re-render the view if it hasn't been cached or if critical properties changed
-        const viewKey = `${this.currentView}-${this.selectedProfile}-${this.selectedLanguage}`;
-
         switch (this.currentView) {
+            case 'api-key':
+                return html`
+                    <api-key-view 
+                        @api-key-validated=${() => this.handleApiKeyValidated()}
+                    ></api-key-view>
+                `;
+
             case 'onboarding':
                 return html`
                     <onboarding-view .onComplete=${() => this.handleOnboardingComplete()} .onClose=${() => this.handleClose()}></onboarding-view>
@@ -404,56 +436,15 @@ export class CheatingDaddyApp extends LitElement {
             case 'main':
                 return html`
                     <main-view
-                        .onStart=${() => this.handleStart()}
-                        .onAPIKeyHelp=${() => this.handleAPIKeyHelp()}
-                        .onLayoutModeChange=${layoutMode => this.handleLayoutModeChange(layoutMode)}
+                        .onGetStarted=${() => this.handleGetStarted()}
                     ></main-view>
                 `;
 
-            case 'customize':
-                return html`
-                    <customize-view
-                        .selectedProfile=${this.selectedProfile}
-                        .selectedLanguage=${this.selectedLanguage}
-                        .selectedScreenshotInterval=${this.selectedScreenshotInterval}
-                        .selectedImageQuality=${this.selectedImageQuality}
-                        .layoutMode=${this.layoutMode}
-                        .advancedMode=${this.advancedMode}
-                        .onProfileChange=${profile => this.handleProfileChange(profile)}
-                        .onLanguageChange=${language => this.handleLanguageChange(language)}
-                        .onScreenshotIntervalChange=${interval => this.handleScreenshotIntervalChange(interval)}
-                        .onImageQualityChange=${quality => this.handleImageQualityChange(quality)}
-                        .onLayoutModeChange=${layoutMode => this.handleLayoutModeChange(layoutMode)}
-                        .onAdvancedModeChange=${advancedMode => this.handleAdvancedModeChange(advancedMode)}
-                    ></customize-view>
-                `;
+            case 'todo':
+                return html` <todo-view @start-focus-session=${(e) => this.handleStartFocusSession(e.detail.task)}></todo-view> `;
 
-            case 'help':
-                return html` <help-view .onExternalLinkClick=${url => this.handleExternalLinkClick(url)}></help-view> `;
-
-            case 'history':
-                return html` <history-view></history-view> `;
-
-            case 'advanced':
-                return html` <advanced-view></advanced-view> `;
-
-            case 'assistant':
-                return html`
-                    <assistant-view
-                        .responses=${this.responses}
-                        .currentResponseIndex=${this.currentResponseIndex}
-                        .selectedProfile=${this.selectedProfile}
-                        .onSendText=${message => this.handleSendText(message)}
-                        .shouldAnimateResponse=${this.shouldAnimateResponse}
-                        @response-index-changed=${this.handleResponseIndexChanged}
-                        @response-animation-complete=${() => {
-                            this.shouldAnimateResponse = false;
-                            this._currentResponseIsComplete = true;
-                            console.log('[response-animation-complete] Marked current response as complete');
-                            this.requestUpdate();
-                        }}
-                    ></assistant-view>
-                `;
+            case 'focus-session':
+                return html` <focus-session-view .task=${this.currentFocusTask} @back-to-todo=${() => this.handleBackToTodo()}></focus-session-view> `;
 
             default:
                 return html`<div>Unknown view: ${this.currentView}</div>`;
@@ -470,13 +461,8 @@ export class CheatingDaddyApp extends LitElement {
                 <div class="container">
                     <app-header
                         .currentView=${this.currentView}
-                        .statusText=${this.statusText}
-                        .startTime=${this.startTime}
-                        .advancedMode=${this.advancedMode}
-                        .onCustomizeClick=${() => this.handleCustomizeClick()}
-                        .onHelpClick=${() => this.handleHelpClick()}
-                        .onHistoryClick=${() => this.handleHistoryClick()}
-                        .onAdvancedClick=${() => this.handleAdvancedClick()}
+                        .onTodoClick=${() => this.handleTodoClick()}
+                        .onSettingsClick=${() => this.handleSettingsClick()}
                         .onCloseClick=${() => this.handleClose()}
                         .onBackClick=${() => this.handleBackClick()}
                         .onHideToggleClick=${() => this.handleHideToggle()}
