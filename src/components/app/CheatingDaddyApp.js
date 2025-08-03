@@ -2,9 +2,9 @@ import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 import { AppHeader } from './AppHeader.js';
 import { MainView } from '../views/MainView.js';
 import { OnboardingView } from '../views/OnboardingView.js';
-import { TodoView } from '../views/TodoView.js';
+import { MainFocusView } from '../views/MainFocusView.js';
+import { ProfileView } from '../views/ProfileView.js';
 import { FocusSessionView } from '../views/FocusSessionView.js';
-import { ApiKeyView } from '../views/ApiKeyView.js';
 
 export class FocusBuddyApp extends LitElement {
     static styles = css`
@@ -118,14 +118,13 @@ export class FocusBuddyApp extends LitElement {
     constructor() {
         super();
         
-        // Check if API key exists and is valid
-        const apiKey = localStorage.getItem('apiKey');
-        const apiKeyValidated = localStorage.getItem('apiKeyValidated') === 'true';
+        // Check if onboarding is completed (includes API key setup)
+        const onboardingCompleted = localStorage.getItem('onboardingCompleted') === 'true';
         
-        if (!apiKey || !apiKeyValidated) {
-            this.currentView = 'api-key';
+        if (!onboardingCompleted) {
+            this.currentView = 'onboarding';
         } else {
-            this.currentView = localStorage.getItem('onboardingCompleted') ? 'todo' : 'onboarding';
+            this.currentView = 'main-focus';
         }
         
         this.statusText = '';
@@ -145,7 +144,7 @@ export class FocusBuddyApp extends LitElement {
         this._awaitingNewResponse = false;
         this._currentResponseIsComplete = true;
         this.shouldAnimateResponse = false;
-        this.currentFocusTask = null;
+        // Removed: currentFocusTask - simplified focus flow
 
         // Apply layout mode to document root
         this.updateLayoutMode();
@@ -166,6 +165,11 @@ export class FocusBuddyApp extends LitElement {
             ipcRenderer.on('click-through-toggled', (_, isEnabled) => {
                 this._isClickThrough = isEnabled;
             });
+            ipcRenderer.on('navigate-to-view', (_, viewName) => {
+                console.log('Navigating to view:', viewName);
+                this.currentView = viewName;
+                this.requestUpdate();
+            });
         }
     }
 
@@ -176,6 +180,7 @@ export class FocusBuddyApp extends LitElement {
             ipcRenderer.removeAllListeners('update-response');
             ipcRenderer.removeAllListeners('update-status');
             ipcRenderer.removeAllListeners('click-through-toggled');
+            ipcRenderer.removeAllListeners('navigate-to-view');
         }
     }
 
@@ -225,39 +230,28 @@ export class FocusBuddyApp extends LitElement {
     // Header event handlers
 
 
-    handleTodoClick() {
-        this.currentView = 'todo';
-        this.requestUpdate();
-    }
+    // Removed: handleTodoClick - using MainFocusView instead of TodoView
 
-    handleStartFocusSession(task) {
-        console.log('Starting focus session for task:', task);
-        this.currentFocusTask = task;
-        this.currentView = 'focus-session';
-        this.requestUpdate();
-    }
-
-    handleBackToTodo() {
-        this.currentView = 'todo';
-        this.currentFocusTask = null;
-        this.requestUpdate();
-    }
+    // Removed: handleStartFocusSession and handleBackToTodo - simplified to direct focus in MainFocusView
 
     handleGetStarted() {
-        this.currentView = 'todo';
+        this.currentView = 'main-focus';
         this.requestUpdate();
     }
 
+    // Legacy method - API key validation is now part of onboarding
     handleApiKeyValidated() {
-        localStorage.setItem('apiKeyValidated', 'true');
         this.currentView = 'todo';
         this.requestUpdate();
     }
 
     handleSettingsClick() {
-        // Clear API key validation and go back to API key setup
-        localStorage.removeItem('apiKeyValidated');
-        this.currentView = 'api-key';
+        this.currentView = 'profile';
+        this.requestUpdate();
+    }
+
+    handleBackToFocus() {
+        this.currentView = 'main-focus';
         this.requestUpdate();
     }
 
@@ -276,10 +270,10 @@ export class FocusBuddyApp extends LitElement {
             this.currentView = 'main';
             console.log('Session closed');
         } else {
-            // Quit the entire application
+            // Hide the window to background
             if (window.require) {
                 const { ipcRenderer } = window.require('electron');
-                await ipcRenderer.invoke('quit-application');
+                await ipcRenderer.invoke('hide-window');
             }
         }
     }
@@ -313,12 +307,7 @@ export class FocusBuddyApp extends LitElement {
         this.currentView = 'assistant';
     }
 
-    async handleAPIKeyHelp() {
-        if (window.require) {
-            const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('open-external', 'https://focusbuddy.app/help/api-key');
-        }
-    }
+    // Removed: handleAPIKeyHelp - API key help is now integrated in onboarding
 
     // Customize view event handlers
     handleProfileChange(profile) {
@@ -377,7 +366,8 @@ export class FocusBuddyApp extends LitElement {
 
     // Onboarding event handlers
     handleOnboardingComplete() {
-        this.currentView = 'main';
+        this.currentView = 'main-focus';
+        this.requestUpdate();
     }
 
     updated(changedProperties) {
@@ -421,12 +411,7 @@ export class FocusBuddyApp extends LitElement {
 
     renderCurrentView() {
         switch (this.currentView) {
-            case 'api-key':
-                return html`
-                    <api-key-view 
-                        @api-key-validated=${() => this.handleApiKeyValidated()}
-                    ></api-key-view>
-                `;
+            // Removed: API key view is now part of onboarding
 
             case 'onboarding':
                 return html`
@@ -440,11 +425,14 @@ export class FocusBuddyApp extends LitElement {
                     ></main-view>
                 `;
 
-            case 'todo':
-                return html` <todo-view @start-focus-session=${(e) => this.handleStartFocusSession(e.detail.task)}></todo-view> `;
+            case 'main-focus':
+                return html`<main-focus-view></main-focus-view>`;
+
+            case 'profile':
+                return html`<profile-view .onBackToFocus=${() => this.handleBackToFocus()}></profile-view>`;
 
             case 'focus-session':
-                return html` <focus-session-view .task=${this.currentFocusTask} @back-to-todo=${() => this.handleBackToTodo()}></focus-session-view> `;
+                return html`<focus-session-view></focus-session-view>`;
 
             default:
                 return html`<div>Unknown view: ${this.currentView}</div>`;

@@ -2,7 +2,7 @@ if (require('electron-squirrel-startup')) {
     process.exit(0);
 }
 
-const { app, BrowserWindow, shell, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, screen, Notification } = require('electron');
 const { createWindow, updateGlobalShortcuts } = require('./utils/window');
 const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = require('./utils/gemini');
 const { getLocalConfig, writeConfig } = require('./config');
@@ -20,6 +20,7 @@ app.whenReady().then(async () => {
     createMainWindow();
     setupGeminiIpcHandlers(geminiSessionRef);
     setupGeneralIpcHandlers();
+    setupNotificationHandlers();
 });
 
 app.on('window-all-closed', () => {
@@ -49,6 +50,32 @@ function setupGeneralIpcHandlers() {
             return { success: true, config };
         } catch (error) {
             console.error('Error setting onboarded:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Navigation-related IPC handlers
+    ipcMain.handle('navigate-to-view', async (event, viewName) => {
+        try {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('navigate-to-view', viewName);
+                return { success: true };
+            }
+            return { success: false, error: 'Window not available' };
+        } catch (error) {
+            console.error('Error navigating to view:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Distraction feedback IPC handler
+    ipcMain.handle('process-distraction-feedback', async (event, feedbackData) => {
+        try {
+            // Pass feedback to focus monitor for processing
+            focusMonitor.processFeedback(feedbackData);
+            return { success: true };
+        } catch (error) {
+            console.error('Error processing distraction feedback:', error);
             return { success: false, error: error.message };
         }
     });
@@ -325,6 +352,18 @@ function setupGeneralIpcHandlers() {
         }
     });
 
+    ipcMain.handle('hide-window', async event => {
+        try {
+            if (mainWindow) {
+                mainWindow.hide();
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('Error hiding window:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
     ipcMain.handle('quit-application', async event => {
         try {
             stopMacOSAudioCapture();
@@ -351,8 +390,75 @@ function setupGeneralIpcHandlers() {
             updateGlobalShortcuts(newKeybinds, mainWindow, sendToRenderer, geminiSessionRef);
         }
     });
+}
 
+function setupNotificationHandlers() {
+    // Set up IPC handler for sending native notifications
+    ipcMain.handle('send-native-notification', async (event, options) => {
+        try {
+            showNativeNotification(options);
+            return { success: true };
+        } catch (error) {
+            console.error('Error sending native notification:', error);
+            return { success: false, error: error.message };
+        }
+    });
+}
 
+function showNativeNotification(options) {
+    // Check if notifications are supported
+    if (!Notification.isSupported()) {
+        console.warn('Native notifications are not supported on this system');
+        return;
+    }
 
+    const notification = new Notification({
+        title: options.title || 'Focus Buddy',
+        body: options.body || 'Distraction detected!',
+        icon: options.icon || null,
+        silent: options.silent || false,
+        urgency: options.urgency || 'critical', // Make notifications persistent/sticky
+        timeoutType: options.timeoutType || 'never', // Never auto-dismiss
+        tag: options.tag || 'focus-buddy-distraction' // Group similar notifications
+    });
 
+    // Handle notification click - show and focus the app
+    notification.on('click', () => {
+        showAndFocusWindow();
+    });
+
+    // Handle notification close
+    notification.on('close', () => {
+        console.log('Notification closed');
+    });
+
+    // Show the notification
+    notification.show();
+
+    console.log('Native notification sent:', options.title);
+}
+
+function showAndFocusWindow() {
+    if (mainWindow) {
+        // Show the window if it's hidden
+        if (!mainWindow.isVisible()) {
+            mainWindow.show();
+        }
+        
+        // Focus the window
+        mainWindow.focus();
+        
+        // On macOS, also bring the app to front
+        if (process.platform === 'darwin') {
+            app.focus();
+        }
+        
+        // Navigate to focus session view to show activity log
+        mainWindow.webContents.send('navigate-to-view', 'focus-session');
+        
+        console.log('Window focused from distraction notification click, navigated to activity log');
+    } else {
+        // If no main window exists, create one
+        createMainWindow();
+    }
 }

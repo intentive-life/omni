@@ -165,9 +165,7 @@ export class AppHeader extends LitElement {
             help: 'Help & Shortcuts',
             history: 'Conversation History',
             advanced: 'Advanced Tools',
-            todo: 'Focus Buddy - Todo',
-            'focus-session': 'Focus Session',
-            'api-key': 'API Key Setup',
+            'main-focus': 'Focus Buddy',
             assistant: 'Focus Buddy',
         };
         return titles[this.currentView] || 'Focus Buddy';
@@ -182,7 +180,7 @@ export class AppHeader extends LitElement {
     }
 
     isNavigationView() {
-        const navigationViews = ['customize', 'help', 'history', 'advanced', 'todo', 'focus-session'];
+        const navigationViews = ['customize', 'help', 'history', 'advanced', 'todo', 'focus-session', 'profile'];
         return navigationViews.includes(this.currentView);
     }
 
@@ -218,8 +216,8 @@ export class AppHeader extends LitElement {
                         </button>
                     ` : ''}
                     
-                    ${this.currentView === 'todo' ? html`
-                        <button class="icon-button" @click=${this.onSettingsClick} title="Settings">
+                    ${(this.currentView === 'todo' || this.currentView === 'main-focus') ? html`
+                        <button class="icon-button" @click=${this.onSettingsClick} title="Profile Settings">
                             <?xml version="1.0" encoding="UTF-8"?><svg
                                 width="24px"
                                 height="24px"

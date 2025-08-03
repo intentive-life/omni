@@ -1,0 +1,242 @@
+---
+alwaysApply: true
+---
+
+# Minimal Electron App Best Practices
+
+## 🏗️ **ARCHITECTURE PRINCIPLES**
+
+### **Simple File Structure**
+
+```
+src/
+├── index.js                 # Main process entry point
+├── index.html              # Renderer HTML
+├── preload.js              # Secure IPC bridge
+├── components/             # UI components
+├── utils/                  # Shared utilities
+└── config.js              # Configuration management
+```
+
+### **Process Separation Rules**
+
+-   **Main Process (Node.js)**: `src/index.js`, `src/config.js`, `src/utils/`
+
+    -   ❌ NEVER use `localStorage`, `window`, or DOM APIs
+    -   ✅ Use file system, IPC, configuration management
+    -   ✅ Use `require()` for imports (CommonJS)
+
+-   **Renderer Process (Browser)**: `src/components/`, HTML files
+
+    -   ✅ Can use `localStorage`, `window`, DOM APIs
+    -   ✅ Can use ES6 imports
+    -   ✅ Access main process via `window.require('electron')`
+
+-   **Preload Scripts**: Secure bridge between processes
+    -   ✅ Use for exposing safe APIs to renderer
+    -   ✅ Enable context isolation
+    -   ❌ Never expose full Node.js access
+
+## 🚀 **PERFORMANCE BEST PRACTICES**
+
+### **Startup Optimization**
+
+-   ✅ Load only essential modules on startup
+-   ✅ Use lazy loading for non-critical components
+-   ✅ Defer data loading until needed
+-   ✅ Code splitting for large bundles
+-   ✅ Remove polyfills (you control the browser)
+
+### **Memory Management**
+
+-   ✅ Clean up event listeners in components
+-   ✅ Remove IPC listeners when done
+-   ✅ Clear intervals and timeouts
+-   ✅ Handle app lifecycle (users never close desktop apps)
+-   ✅ Use `requestIdleCallback()` for non-critical tasks
+
+### **IPC Communication**
+
+-   ✅ Use `ipcRenderer.invoke()` (async) over `sendSync()`
+-   ✅ Handle IPC errors with try/catch
+-   ✅ Minimize IPC payload size
+-   ❌ Never use `sendSync()` - it blocks the renderer
+
+## 🔒 **SECURITY PRACTICES**
+
+### **Secure by Default**
+
+-   ✅ Enable context isolation in `webPreferences`
+-   ✅ Disable Node.js integration in renderer unless required
+-   ✅ Use preload scripts for safe API exposure
+-   ✅ Validate all IPC messages
+-   ❌ Never expose sensitive APIs directly to renderer
+
+### **Content Security Policy**
+
+```html
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
+```
+
+## 📦 **DEPENDENCY MANAGEMENT**
+
+### **Minimal Dependencies**
+
+-   ✅ Use built-in Electron APIs when possible
+-   ✅ Prefer lightweight alternatives
+-   ✅ Avoid complex frameworks unless necessary
+-   ✅ Regular dependency audits (`npm audit`)
+
+### **Bundle Size Optimization**
+
+-   ✅ Tree shaking for unused code
+-   ✅ Use `electron-builder` for packaging
+-   ✅ Exclude development dependencies from production
+-   ✅ Compress assets and images
+
+## 🗄️ **DATA PERSISTENCE**
+
+### **Local Storage Strategy**
+
+-   ✅ Use file system for main process data
+-   ✅ Use `localStorage` for renderer-specific data
+-   ✅ Centralized config management (like `src/config.js`)
+-   ✅ JSON files for simple data structures
+-   ❌ Don't mix localStorage and file system approaches
+
+### **API Key Storage**
+
+-   ✅ Store in local config file with proper permissions
+-   ✅ Validate keys before use
+-   ✅ Handle API failures gracefully
+-   ❌ Never hardcode API keys in source
+
+## 🎨 **UI/UX PATTERNS**
+
+### **Framework Choice**
+
+-   ✅ Use lightweight UI libraries (LitElement, vanilla JS)
+-   ✅ Prefer Web Components for reusability
+-   ❌ Avoid heavy frameworks unless necessary (React/Vue add complexity)
+
+### **Responsive Design**
+
+-   ✅ Design for multiple screen sizes
+-   ✅ Handle window resizing gracefully
+-   ✅ Support system themes (dark/light)
+-   ✅ Keyboard navigation support
+
+## 🔧 **DEVELOPMENT WORKFLOW**
+
+### **Build Process**
+
+-   ✅ Simple build scripts in `package.json`
+-   ✅ Hot reload for development
+-   ✅ TypeScript for larger projects (optional)
+-   ✅ ESLint for code consistency
+
+### **Testing Strategy**
+
+-   ✅ Unit tests for utility functions
+-   ✅ Integration tests for IPC communication
+-   ✅ Manual testing on all target platforms
+-   ✅ E2E tests for critical user flows
+
+## 🌍 **CROSS-PLATFORM CONSIDERATIONS**
+
+### **Platform Compatibility**
+
+-   ✅ Test on Windows, macOS, and Linux
+-   ✅ Handle platform-specific window behavior
+-   ✅ Use `process.platform` for platform-specific code
+-   ✅ Icon and menu considerations per platform
+
+### **Native Integration**
+
+-   ✅ System notifications
+-   ✅ File associations
+-   ✅ Auto-updater setup
+-   ✅ OS-specific features (macOS dock, Windows taskbar)
+
+## 📊 **MONITORING & DEBUGGING**
+
+### **Performance Monitoring**
+
+-   ✅ Monitor memory usage over time
+-   ✅ Track startup time
+-   ✅ Log IPC communication performance
+-   ✅ Use Chrome DevTools for renderer debugging
+
+### **Error Handling**
+
+-   ✅ Graceful error recovery
+-   ✅ User-friendly error messages
+-   ✅ Automatic error reporting (optional)
+-   ✅ Fallback behavior for API failures
+
+## 🎯 **FOCUS BUDDY SPECIFIC DECISIONS**
+
+### **Current Architecture Choices**
+
+-   ✅ **LitElement** for UI components (lightweight, web standards)
+-   ✅ **File-based config** for persistence (`src/config.js`)
+-   ✅ **IPC communication** for screen monitoring
+-   ✅ **HTTP-based API validation** for Gemini keys
+-   ✅ **Stealth mode by default** for privacy
+
+### **Technical Stack Rationale**
+
+-   **No Backend**: Pure Electron app with local persistence
+-   **Gemini AI**: External API for analysis, no local ML models
+-   **Cross-platform**: Single codebase for all platforms
+-   **Minimal UI**: Focus on functionality over complex interfaces
+
+## ❌ **ANTI-PATTERNS TO AVOID**
+
+### **Common Mistakes**
+
+-   ❌ Using `localStorage` in main process
+-   ❌ Exposing full Node.js to renderer
+-   ❌ Synchronous IPC calls (`sendSync`)
+-   ❌ Heavy frameworks for simple apps
+-   ❌ Ignoring platform differences
+-   ❌ Memory leaks from uncleaned listeners
+-   ❌ Blocking the main thread with heavy operations
+-   ❌ Large startup bundles
+-   ❌ Insecure IPC communication
+-   ❌ Not handling app lifecycle properly
+
+### **Performance Killers**
+
+-   ❌ Loading everything on startup
+-   ❌ Frequent unnecessary re-renders
+-   ❌ Large memory allocations
+-   ❌ Inefficient image handling
+-   ❌ Too many IPC calls
+-   ❌ Not cleaning up resources
+
+## 📚 **RECOMMENDED TOOLS**
+
+### **Development**
+
+-   **electron-builder**: App packaging and distribution
+-   **electron-forge**: Alternative build tool
+-   **concurrently**: Run multiple scripts
+-   **nodemon**: Development auto-restart
+
+### **Testing & Quality**
+
+-   **vitest**: Fast testing framework
+-   **eslint**: Code linting
+-   **prettier**: Code formatting
+-   **electron-chromedriver**: E2E testing
+
+### **Monitoring**
+
+-   **Chrome DevTools**: Built-in debugging
+-   **electron-log**: Logging framework
+-   **electron-updater**: Auto-update functionality
+
+---
+
+**Decision Context**: These practices ensure Focus Buddy remains a lightweight, secure, and performant cross-platform application while maintaining simplicity in architecture and development workflow.

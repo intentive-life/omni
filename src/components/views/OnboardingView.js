@@ -60,6 +60,8 @@ export class OnboardingView extends LitElement {
             overflow: hidden;
         }
 
+
+
         .slide-icon {
             width: 48px;
             height: 48px;
@@ -205,11 +207,89 @@ export class OnboardingView extends LitElement {
             background: rgba(255, 255, 255, 0.8);
             transform: scale(1.2);
         }
+
+        .api-key-form {
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.8);
+            text-align: left;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #e5e5e5;
+            font-size: 14px;
+            font-family: monospace;
+            transition: all 0.2s ease;
+        }
+
+        .form-group input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .form-group input.error {
+            border-color: #dc3545;
+            box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.2);
+        }
+
+        .error-message {
+            color: #dc3545;
+            font-size: 12px;
+            margin-top: 8px;
+            text-align: left;
+        }
+
+        .success-message {
+            color: #28a745;
+            font-size: 12px;
+            margin-top: 8px;
+            text-align: left;
+        }
+
+        .help-text {
+            margin-top: 16px;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            text-align: left;
+        }
+
+        .link {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        .link:hover {
+            color: #ffffff;
+        }
     `;
 
     static properties = {
         currentSlide: { type: Number },
         contextText: { type: String },
+        apiKey: { type: String },
+        isValidatingApiKey: { type: Boolean },
+        apiKeyError: { type: String },
+        apiKeySuccess: { type: String },
         onComplete: { type: Function },
         onClose: { type: Function },
     };
@@ -218,6 +298,10 @@ export class OnboardingView extends LitElement {
         super();
         this.currentSlide = 0;
         this.contextText = '';
+        this.apiKey = localStorage.getItem('apiKey') || '';
+        this.isValidatingApiKey = false;
+        this.apiKeyError = '';
+        this.apiKeySuccess = '';
         this.onComplete = () => {};
         this.onClose = () => {};
         this.canvas = null;
@@ -241,7 +325,7 @@ export class OnboardingView extends LitElement {
                 [35, 30, 45], // Muted purple
                 [10, 10, 20], // Almost black
             ],
-            // Slide 2 - Privacy (Dark blue-gray)
+            // Slide 2 - API Key (Dark blue-gray)
             [
                 [20, 25, 35], // Dark blue-gray
                 [15, 20, 30], // Darker blue-gray
@@ -259,16 +343,7 @@ export class OnboardingView extends LitElement {
                 [35, 35, 35], // Lighter dark
                 [10, 10, 10], // Almost black
             ],
-            // Slide 4 - Features (Dark green-gray)
-            [
-                [20, 30, 25], // Dark green-gray
-                [15, 25, 20], // Darker green-gray
-                [25, 35, 30], // Slightly green
-                [10, 20, 15], // Very dark green
-                [30, 40, 35], // Muted green
-                [5, 15, 10], // Almost black
-            ],
-            // Slide 5 - Complete (Dark warm gray)
+            // Slide 4 - Complete (Dark warm gray)
             [
                 [30, 25, 20], // Dark warm gray
                 [25, 20, 15], // Darker warm
@@ -384,8 +459,16 @@ export class OnboardingView extends LitElement {
         this.ctx.globalCompositeOperation = 'source-over';
     }
 
-    nextSlide() {
-        if (this.currentSlide < 4) {
+    async nextSlide() {
+        // If we're on the API key slide (slide 1), validate before proceeding
+        if (this.currentSlide === 1) {
+            const isValid = await this.handleApiKeyValidation();
+            if (!isValid) {
+                return; // Don't proceed if API key is invalid
+            }
+        }
+        
+        if (this.currentSlide < 3) {
             this.startColorTransition(this.currentSlide + 1);
         } else {
             this.completeOnboarding();
@@ -426,11 +509,62 @@ export class OnboardingView extends LitElement {
         this.contextText = e.target.value;
     }
 
+    handleApiKeyInput(e) {
+        this.apiKey = e.target.value;
+        localStorage.setItem('apiKey', this.apiKey);
+        
+        // Clear messages when user starts typing
+        if (this.apiKeyError || this.apiKeySuccess) {
+            this.apiKeyError = '';
+            this.apiKeySuccess = '';
+        }
+    }
+
+    async handleApiKeyValidation() {
+        if (!this.apiKey.trim()) {
+            this.apiKeyError = 'Please enter your Gemini API key';
+            return false;
+        }
+
+        this.isValidatingApiKey = true;
+        this.apiKeyError = '';
+        this.apiKeySuccess = '';
+
+        try {
+            const { ipcRenderer } = window.require('electron');
+            const result = await ipcRenderer.invoke('validate-api-key', this.apiKey);
+            
+            if (result.success) {
+                this.apiKeySuccess = 'API key validated successfully!';
+                localStorage.setItem('apiKeyValidated', 'true');
+                return true;
+            } else {
+                this.apiKeyError = result.error || 'Invalid API key. Please check and try again.';
+                return false;
+            }
+        } catch (error) {
+            console.error('Error validating API key:', error);
+            this.apiKeyError = 'Error validating API key. Please try again.';
+            return false;
+        } finally {
+            this.isValidatingApiKey = false;
+        }
+    }
+
+    handleGetApiKey() {
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.invoke('open-external', 'https://aistudio.google.com/app/apikey');
+        }
+    }
+
     completeOnboarding() {
         if (this.contextText.trim()) {
             localStorage.setItem('customPrompt', this.contextText.trim());
         }
         localStorage.setItem('onboardingCompleted', 'true');
+        // Ensure API key validation is marked as complete
+        localStorage.setItem('apiKeyValidated', 'true');
         this.onComplete();
     }
 
@@ -440,34 +574,31 @@ export class OnboardingView extends LitElement {
                 icon: 'assets/onboarding/welcome.svg',
                 title: 'Welcome to Focus Buddy',
                 content:
-                    'Your AI assistant that listens and watches, then provides intelligent suggestions automatically during interviews and meetings.',
+                    'Your AI assistant that helps you stay focused by monitoring your screen activity and providing personalized motivation.',
             },
             {
                 icon: 'assets/onboarding/security.svg',
-                title: 'Completely Private',
-                content: 'Invisible to screen sharing apps and recording software. Your secret advantage stays completely hidden from others.',
+                title: 'Setup Your AI Assistant',
+                content: 'To enable AI-powered focus monitoring, please provide your Gemini API key.',
+                showApiKey: true,
             },
             {
                 icon: 'assets/onboarding/context.svg',
-                title: 'Add Your Context',
+                title: 'Tell Us About Yourself',
                 content: 'Share relevant information to help the AI provide better, more personalized assistance.',
                 showTextarea: true,
             },
             {
-                icon: 'assets/onboarding/customize.svg',
-                title: 'Additional Features',
-                content: '',
-                showFeatures: true,
-            },
-            {
                 icon: 'assets/onboarding/ready.svg',
-                title: 'Ready to Go',
-                content: 'Add your Gemini API key in settings and start getting AI-powered assistance in real-time.',
+                title: 'Ready to Focus!',
+                content: 'Your AI-powered focus assistant is now configured and ready to help you stay productive.',
             },
         ];
 
         return slides[this.currentSlide];
     }
+
+
 
     render() {
         const slide = this.getSlideContent();
@@ -475,17 +606,50 @@ export class OnboardingView extends LitElement {
         return html`
             <div class="onboarding-container">
                 <canvas class="gradient-canvas"></canvas>
+                
+
 
                 <div class="content-wrapper">
                     <img class="slide-icon" src="${slide.icon}" alt="${slide.title} icon" />
                     <div class="slide-title">${slide.title}</div>
                     <div class="slide-content">${slide.content}</div>
 
+                    ${slide.showApiKey
+                        ? html`
+                              <div class="api-key-form">
+                                  <div class="form-group">
+                                      <label for="api-key">Gemini API Key</label>
+                                      <input 
+                                          id="api-key"
+                                          type="password" 
+                                          .value=${this.apiKey}
+                                          @input=${this.handleApiKeyInput}
+                                          placeholder="Enter your Gemini API key"
+                                          class="${this.apiKeyError ? 'error' : ''}"
+                                          ?disabled=${this.isValidatingApiKey}
+                                      >
+                                      ${this.apiKeyError ? html`
+                                          <div class="error-message">${this.apiKeyError}</div>
+                                      ` : ''}
+                                      ${this.apiKeySuccess ? html`
+                                          <div class="success-message">${this.apiKeySuccess}</div>
+                                      ` : ''}
+                                  </div>
+                                  <div class="help-text">
+                                      <strong>How to get your API key:</strong><br>
+                                      1. Go to <span class="link" @click=${this.handleGetApiKey}>Google AI Studio</span><br>
+                                      2. Sign in with your Google account<br>
+                                      3. Click "Get API key" and create a new key<br>
+                                      4. Copy and paste it above
+                                  </div>
+                              </div>
+                          `
+                        : ''}
                     ${slide.showTextarea
                         ? html`
                               <textarea
                                   class="context-textarea"
-                                  placeholder="Paste your resume, job description, or any relevant context here..."
+                                  placeholder="Tell us about yourself, your work, goals, or anything that would help the AI provide better focus assistance..."
                                   .value=${this.contextText}
                                   @input=${this.handleContextInput}
                               ></textarea>
@@ -519,7 +683,7 @@ export class OnboardingView extends LitElement {
                     </button>
 
                     <div class="progress-dots">
-                        ${[0, 1, 2, 3, 4].map(
+                        ${[0, 1, 2, 3].map(
                             index => html`
                                 <div
                                     class="dot ${index === this.currentSlide ? 'active' : ''}"
@@ -533,9 +697,13 @@ export class OnboardingView extends LitElement {
                         )}
                     </div>
 
-                    <button class="nav-button" @click=${this.nextSlide}>
-                        ${this.currentSlide === 4
+                    <button class="nav-button" @click=${this.nextSlide} ?disabled=${this.isValidatingApiKey}>
+                        ${this.currentSlide === 3
                             ? 'Get Started'
+                            : this.currentSlide === 1 && this.isValidatingApiKey
+                            ? 'Validating...'
+                            : this.currentSlide === 1
+                            ? 'Validate & Continue'
                             : html`
                                   <svg width="16px" height="16px" stroke-width="2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                       <path d="M9 6L15 12L9 18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"></path>

@@ -359,6 +359,66 @@ export class FocusSessionView extends LitElement {
             color: var(--description-color);
         }
 
+        .feedback-buttons {
+            margin-top: 8px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .feedback-btn {
+            background: var(--button-background);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .feedback-btn:hover {
+            background: var(--hover-background);
+        }
+
+        .feedback-btn.true-positive {
+            background: #28a745;
+            color: white;
+            border-color: #28a745;
+        }
+
+        .feedback-btn.false-positive {
+            background: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+
+        .feedback-explanation {
+            margin-top: 8px;
+            width: 100%;
+        }
+
+        .feedback-explanation input {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--input-background);
+            color: var(--text-color);
+            font-size: 11px;
+        }
+
+        .feedback-explanation button {
+            margin-top: 4px;
+            background: var(--text-input-button-background);
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
         .status-indicator {
             display: inline-block;
             width: 8px;
@@ -406,7 +466,9 @@ export class FocusSessionView extends LitElement {
         selectedScreens: { type: Array },
         availableScreens: { type: Array },
         activityLog: { type: Array },
-        sessionId: { type: String }
+        sessionId: { type: String },
+        feedbackStates: { type: Object },
+        showingExplanation: { type: String }
     };
 
     constructor() {
@@ -422,6 +484,8 @@ export class FocusSessionView extends LitElement {
         this.activityLog = [];
         this.sessionId = null;
         this.timer = null;
+        this.feedbackStates = {}; // Track feedback for each activity entry
+        this.showingExplanation = null; // Track which entry is showing explanation input
     }
 
     connectedCallback() {
@@ -525,7 +589,8 @@ export class FocusSessionView extends LitElement {
             minute: '2-digit', 
             second: '2-digit' 
         });
-        this.activityLog = [...this.activityLog, { timestamp, message, type, additionalData }];
+        const id = `activity-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        this.activityLog = [...this.activityLog, { id, timestamp, message, type, additionalData }];
         // Keep only last 50 entries
         if (this.activityLog.length > 50) {
             this.activityLog = this.activityLog.slice(-50);
@@ -537,6 +602,54 @@ export class FocusSessionView extends LitElement {
             this.selectedScreens = this.selectedScreens.filter(id => id !== screenId);
         } else {
             this.selectedScreens = [...this.selectedScreens, screenId];
+        }
+    }
+
+    handleFeedback(activityId, feedbackType) {
+        this.feedbackStates[activityId] = feedbackType;
+        
+        if (feedbackType === 'false-positive') {
+            // Show explanation input
+            this.showingExplanation = activityId;
+        } else {
+            // Send true positive feedback immediately
+            this.sendFeedbackToMain(activityId, feedbackType, null);
+        }
+        
+        this.requestUpdate();
+    }
+
+    async submitExplanation(activityId) {
+        const explanationInput = this.shadowRoot.querySelector(`#explanation-${activityId}`);
+        const explanation = explanationInput?.value?.trim();
+        
+        if (!explanation) {
+            alert('Please provide an explanation of what you were actually doing.');
+            return;
+        }
+        
+        // Send feedback with explanation
+        this.sendFeedbackToMain(activityId, 'false-positive', explanation);
+        
+        // Hide explanation input
+        this.showingExplanation = null;
+        this.requestUpdate();
+    }
+
+    async sendFeedbackToMain(activityId, feedbackType, explanation) {
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            try {
+                await ipcRenderer.invoke('process-distraction-feedback', {
+                    activityId,
+                    sessionId: this.sessionId,
+                    feedbackType,
+                    explanation,
+                    timestamp: new Date().toISOString()
+                });
+            } catch (error) {
+                console.error('Error sending feedback:', error);
+            }
         }
     }
 
@@ -738,7 +851,7 @@ export class FocusSessionView extends LitElement {
                         <div class="activity-time">${activity.timestamp}</div>
                         <div class="activity-message activity-type-${activity.type}">
                             ${activity.message}
-                            ${activity.additionalData ? this.renderAdditionalData(activity.additionalData) : ''}
+                            ${activity.additionalData ? this.renderAdditionalData(activity.additionalData, activity.id) : ''}
                         </div>
                     </div>
                 `)}
@@ -746,8 +859,11 @@ export class FocusSessionView extends LitElement {
         `;
     }
 
-    renderAdditionalData(data) {
+    renderAdditionalData(data, activityId) {
         if (data.geminiResponse) {
+            const feedbackState = this.feedbackStates[activityId];
+            const isDistraction = data.geminiResponse.isDistracted;
+            
             return html`
                 <div class="gemini-analysis">
                     <div class="analysis-details">
@@ -772,6 +888,31 @@ export class FocusSessionView extends LitElement {
                         ${data.geminiResponse.analysis ? html`
                             <div class="analysis-item">
                                 <strong>Analysis:</strong> ${data.geminiResponse.analysis}
+                            </div>
+                        ` : ''}
+                        
+                        ${isDistraction && !feedbackState ? html`
+                            <div class="feedback-buttons">
+                                <span style="font-size: 11px; color: var(--description-color); margin-right: 8px;">Was this correct?</span>
+                                <button class="feedback-btn" @click=${() => this.handleFeedback(activityId, 'true-positive')}>
+                                    ✅ Yes, distracted
+                                </button>
+                                <button class="feedback-btn" @click=${() => this.handleFeedback(activityId, 'false-positive')}>
+                                    ❌ No, I was intentional
+                                </button>
+                            </div>
+                        ` : ''}
+                        
+                        ${feedbackState === 'false-positive' && this.showingExplanation === activityId ? html`
+                            <div class="feedback-explanation">
+                                <input type="text" placeholder="Please explain what you were actually doing..." id="explanation-${activityId}">
+                                <button @click=${() => this.submitExplanation(activityId)}>Submit</button>
+                            </div>
+                        ` : ''}
+                        
+                        ${feedbackState ? html`
+                            <div style="margin-top: 8px; font-size: 11px; color: var(--description-color);">
+                                ${feedbackState === 'true-positive' ? '✅ Confirmed as distraction' : '❌ Marked as intentional work'}
                             </div>
                         ` : ''}
                     </div>

@@ -1,4 +1,4 @@
-const { desktopCapturer, ipcMain } = require('electron');
+const { desktopCapturer, ipcMain, Notification } = require('electron');
 const { GoogleGenAI } = require('@google/genai');
 
 class FocusMonitor {
@@ -7,6 +7,7 @@ class FocusMonitor {
         this.monitoringIntervals = new Map(); // sessionId -> interval
         this.geminiClient = null;
         this.apiKey = null;
+        this.feedbackHistory = new Map(); // sessionId -> array of feedback entries
     }
 
     async initializeGemini(apiKey) {
@@ -39,6 +40,7 @@ class FocusMonitor {
         const session = {
             id: sessionId,
             task: sessionData.taskTitle,
+            personalContext: sessionData.personalContext || '',
             screens: sessionData.screens,
             captureInterval: sessionData.screenCaptureInterval * 1000, // convert to ms
             reminderFrequency: sessionData.reminderFrequency * 60 * 1000, // convert to ms
@@ -95,8 +97,8 @@ class FocusMonitor {
             // Capture screens
             const screenshots = await this.captureScreens(session.screens);
             
-            // Analyze activity
-            const activityResult = await this.analyzeActivity(screenshots, session.task);
+            // Analyze activity with personal context
+            const activityResult = await this.analyzeActivity(screenshots, session.task, sessionId);
             
             // Update session data
             session.lastActivity = Date.now();
@@ -118,6 +120,11 @@ class FocusMonitor {
                 const message = activityResult.aiMessage || this.getFallbackFocusedMessage();
                 
                 this.sendActivityUpdate(sessionId, `✅ Focused: ${activityResult.reason} - ${message}`, 'success');
+                
+                // Send positive focus notification occasionally (every 5th check to avoid spam)
+                if (session.activityCount % 5 === 0) {
+                    this.sendFocusConfirmationNotification(sessionId, activityResult);
+                }
             }
 
             // Check for reminder frequency
@@ -159,7 +166,7 @@ class FocusMonitor {
         return screenshots;
     }
 
-    async analyzeActivity(screenshots, focusTask) {
+    async analyzeActivity(screenshots, focusTask, sessionId = null) {
         if (!this.geminiClient || screenshots.length === 0) {
             console.log('No Gemini client or screenshots available for analysis');
             return { isDistracted: false, reason: 'No analysis possible' };
@@ -169,15 +176,16 @@ class FocusMonitor {
             console.log(`\n🔍 ANALYZING ACTIVITY - ${screenshots.length} screenshot(s)`);
             console.log(`📋 Focus Task: "${focusTask}"`);
             
-            // Create analysis prompt
-            const prompt = `
-            Analyze these screen captures and determine if the user is focused on their task: "${focusTask}"
+            // Get personal context from current session for personalized analysis
+            const session = this.activeSessions.get(sessionId);
+            const personalContext = session?.personalContext || null;
             
-            Consider:
-            - Is the content related to the task?
-            - Are they on social media, games, or other distractions?
-            - Is this productive work?
-            - What specific applications or websites are visible?
+            // Get feedback context for better analysis
+            const feedbackContext = this.getFeedbackContext(sessionId);
+            
+            // Create enhanced analysis prompt with personal context
+            const prompt = `
+            Analyze these screen captures to determine if the user is focused on their task: "${focusTask}". ${personalContext ? `Personal context: ${personalContext}. ` : ''}${feedbackContext ? `${feedbackContext} ` : ''}
             
             Respond with JSON format:
             {
@@ -190,7 +198,7 @@ class FocusMonitor {
                     "screen1": "description of what's on screen 1",
                     "screen2": "description of what's on screen 2"
                 },
-                "aiMessage": "a witty, motivational, or sarcastic message (depending on if they're focused or distracted) to encourage better focus or acknowledge good work. Keep it brief, engaging, and use emojis appropriately."
+                "aiMessage": "A personalized message (2 sentences max) referencing their context when appropriate. Be encouraging if focused, gently redirect if distracted. Use emojis sparingly."
             }
             `;
 
@@ -223,7 +231,7 @@ class FocusMonitor {
                     console.log(`📤 Attempt ${attempts}/${maxAttempts} - Sending to Gemini API...`);
                     
                     result = await this.geminiClient.models.generateContent({
-                        model: 'gemini-2.5-flash',
+                        model: 'gemini-2.5-flash-lite',
                         contents: [prompt, ...imageParts]
                     });
                     
@@ -273,7 +281,7 @@ class FocusMonitor {
             } catch (parseError) {
                 console.error('Failed to parse Gemini response as JSON:', parseError);
                 console.log('Falling back to heuristic analysis');
-                return this.simpleHeuristicAnalysis(screenshots, focusTask);
+                return this.simpleHeuristicAnalysis(screenshots, focusTask, sessionId);
             }
 
             console.log('✅ Parsed Analysis Result:');
@@ -318,11 +326,11 @@ class FocusMonitor {
             
             // Fallback to simple heuristic
             console.log('🔄 Falling back to heuristic analysis');
-            return this.simpleHeuristicAnalysis(screenshots, focusTask);
+            return this.simpleHeuristicAnalysis(screenshots, focusTask, sessionId);
         }
     }
 
-    simpleHeuristicAnalysis(screenshots, focusTask) {
+    simpleHeuristicAnalysis(screenshots, focusTask, sessionId = null) {
         console.log('🔍 Using heuristic analysis (fallback)');
         
         // Simple heuristic analysis - in reality, you'd use AI
@@ -370,12 +378,94 @@ class FocusMonitor {
     }
 
     sendDistractionNotification(sessionId, activityResult) {
-        // Send distraction notification to renderer
+        // Send distraction notification to renderer with AI message
         const windows = require('electron').BrowserWindow.getAllWindows();
         if (windows.length > 0) {
+            const aiMessage = activityResult.aiMessage || this.getFallbackDistractionMessage();
             windows[0].webContents.send('focus-distraction-alert', {
                 sessionId,
                 reason: activityResult.reason,
+                aiMessage: aiMessage,
+                timestamp: new Date().toISOString()
+            });
+
+            // Also send native notification
+            this.sendNativeDistraction(activityResult, aiMessage);
+        }
+    }
+
+    async sendNativeDistraction(activityResult, aiMessage) {
+        try {
+            // Check if notifications are supported
+            if (!Notification.isSupported()) {
+                console.warn('Native notifications are not supported on this system');
+                return;
+            }
+
+            const notification = new Notification({
+                title: '🚨 Focus Buddy - Distraction Alert',
+                body: aiMessage || `Distraction detected: ${activityResult.reason}`,
+                urgency: 'critical', // Make notifications persistent/sticky
+                timeoutType: 'never', // Never auto-dismiss
+                tag: 'focus-buddy-distraction', // Group similar notifications
+                silent: false
+            });
+
+            // Handle notification click - show and focus the app
+            notification.on('click', () => {
+                this.showAndFocusWindow();
+            });
+
+            // Handle notification close
+            notification.on('close', () => {
+                console.log('Distraction notification closed');
+            });
+
+            // Show the notification
+            notification.show();
+
+            console.log('Native distraction notification sent:', aiMessage);
+        } catch (error) {
+            console.error('Error sending native distraction notification:', error);
+        }
+    }
+
+    showAndFocusWindow() {
+        const windows = require('electron').BrowserWindow.getAllWindows();
+        const { app } = require('electron');
+        
+        if (windows.length > 0) {
+            const mainWindow = windows[0];
+            
+            // Show the window if it's hidden
+            if (!mainWindow.isVisible()) {
+                mainWindow.show();
+            }
+            
+            // Focus the window
+            mainWindow.focus();
+            
+            // On macOS, also bring the app to front
+            if (process.platform === 'darwin') {
+                app.focus();
+            }
+            
+            // Navigate to focus session view to show activity log
+            mainWindow.webContents.send('navigate-to-view', 'focus-session');
+            
+            console.log('Window focused from distraction notification click, navigated to activity log');
+        }
+    }
+
+    sendFocusConfirmationNotification(sessionId, activityResult) {
+        // Send positive focus confirmation to renderer with AI message
+        const windows = require('electron').BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+            const aiMessage = activityResult.aiMessage || this.getFallbackFocusedMessage();
+            windows[0].webContents.send('focus-confirmation', {
+                sessionId,
+                reason: activityResult.reason,
+                aiMessage: aiMessage,
                 timestamp: new Date().toISOString()
             });
         }
@@ -393,6 +483,45 @@ class FocusMonitor {
                 task: session.task,
                 timestamp: new Date().toISOString()
             });
+
+            // Also send native reminder notification
+            this.sendNativeReminder(session);
+        }
+    }
+
+    async sendNativeReminder(session) {
+        try {
+            // Check if notifications are supported
+            if (!Notification.isSupported()) {
+                console.warn('Native notifications are not supported on this system');
+                return;
+            }
+
+            const notification = new Notification({
+                title: '⏰ Focus Buddy - Stay Focused',
+                body: `Remember to stay focused on: ${session.task}`,
+                urgency: 'normal',
+                timeoutType: 'default', // Auto-dismiss after system default time
+                tag: 'focus-buddy-reminder',
+                silent: false
+            });
+
+            // Handle notification click - show and focus the app
+            notification.on('click', () => {
+                this.showAndFocusWindow();
+            });
+
+            // Handle notification close
+            notification.on('close', () => {
+                console.log('Reminder notification closed');
+            });
+
+            // Show the notification
+            notification.show();
+
+            console.log('Native reminder notification sent for task:', session.task);
+        } catch (error) {
+            console.error('Error sending native reminder notification:', error);
         }
     }
 
@@ -407,6 +536,56 @@ class FocusMonitor {
             focusScore: session.activityCount > 0 ? 
                 ((session.activityCount - session.distractionCount) / session.activityCount) * 100 : 100
         };
+    }
+
+    processFeedback(feedbackData) {
+        const { sessionId, feedbackType, explanation, activityId, timestamp } = feedbackData;
+        
+        console.log(`Processing feedback for session ${sessionId}: ${feedbackType}`, { explanation, activityId });
+        
+        // Initialize feedback history for session if not exists
+        if (!this.feedbackHistory.has(sessionId)) {
+            this.feedbackHistory.set(sessionId, []);
+        }
+        
+        // Add feedback to history
+        const feedbackEntry = {
+            activityId,
+            feedbackType,
+            explanation,
+            timestamp
+        };
+        
+        this.feedbackHistory.get(sessionId).push(feedbackEntry);
+        
+        // Keep only last 20 feedback entries per session
+        const history = this.feedbackHistory.get(sessionId);
+        if (history.length > 20) {
+            this.feedbackHistory.set(sessionId, history.slice(-20));
+        }
+        
+        console.log(`Feedback history for session ${sessionId}:`, this.feedbackHistory.get(sessionId));
+    }
+
+    getFeedbackContext(sessionId) {
+        const feedbackHistory = this.feedbackHistory.get(sessionId);
+        if (!feedbackHistory || feedbackHistory.length === 0) {
+            return '';
+        }
+        
+        const recentFeedback = feedbackHistory.slice(-5); // Last 5 feedback entries
+        const falsePositives = recentFeedback.filter(f => f.feedbackType === 'false-positive');
+        
+        if (falsePositives.length === 0) {
+            return '';
+        }
+        
+        const explanations = falsePositives
+            .filter(f => f.explanation)
+            .map(f => f.explanation)
+            .join('; ');
+        
+        return `User Feedback Context: Previously marked as false positives: "${explanations}". Consider this when evaluating similar activities.`;
     }
 
     getFallbackDistractionMessage() {
@@ -430,6 +609,8 @@ class FocusMonitor {
         ];
         return focusedMessages[Math.floor(Math.random() * focusedMessages.length)];
     }
+
+    // Removed: getPersonalContext - now using session-stored personal context
 }
 
 // Create singleton instance
